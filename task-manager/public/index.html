@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Менеджер задач</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="auth-screen" class="screen">
+      <div class="auth-container">
+        <h1>Менеджер задач</h1>
+        <div class="tabs">
+          <button class="tab active" data-tab="login">Вход</button>
+          <button class="tab" data-tab="register">Регистрация</button>
+        </div>
+        <form id="login-form" class="auth-form">
+          <input type="text" id="login-username" placeholder="Имя пользователя" required>
+          <input type="password" id="login-password" placeholder="Пароль" required>
+          <button type="submit">Войти</button>
+        </form>
+        <form id="register-form" class="auth-form hidden">
+          <input type="text" id="register-username" placeholder="Имя пользователя" required>
+          <input type="password" id="register-password" placeholder="Пароль" required>
+          <select id="register-role">
+            <option value="author">Автор</option>
+            <option value="executor">Исполнитель</option>
+            <option value="translator">Переводчик</option>
+          </select>
+          <button type="submit">Зарегистрироваться</button>
+        </form>
+        <p id="auth-error" class="error hidden"></p>
+      </div>
+    </div>
+
+    <div id="main-screen" class="screen hidden">
+      <header>
+        <h1>Менеджер задач</h1>
+        <div class="header-right">
+          <span id="user-display"></span>
+          <span id="role-badge" class="role-badge"></span>
+          <button id="logout-btn">Выйти</button>
+        </div>
+      </header>
+
+      <div class="container">
+        <div id="admin-panel" class="role-panel hidden">
+          <div class="panel-header">
+            <h2>Панель администратора</h2>
+          </div>
+          <div class="stats" id="admin-stats"></div>
+          <div class="filters">
+            <button class="filter-btn active" data-filter="all">Все</button>
+            <button class="filter-btn" data-filter="pending">Ожидают</button>
+            <button class="filter-btn" data-filter="approved">Переведены</button>
+            <button class="filter-btn" data-filter="in_progress">В работе</button>
+            <button class="filter-btn" data-filter="completed">Завершённые</button>
+          </div>
+        </div>
+
+        <div id="author-panel" class="role-panel hidden">
+          <div class="create-task">
+            <h2>Новая публикация</h2>
+            <form id="create-task-form" enctype="multipart/form-data">
+              <input type="text" id="task-title" placeholder="Заголовок" required>
+              <textarea id="task-description" placeholder="Текст публикации"></textarea>
+              <div class="file-upload">
+                <label for="task-attachments" class="file-label">
+                  <span id="file-label-text">Прикрепить файлы (фото, PDF, DOCX, ZIP)</span>
+                  <input type="file" id="task-attachments" multiple accept="image/*,.pdf,.docx,.zip,.rar,.7z">
+                </label>
+                <div id="file-preview-container" class="hidden"></div>
+              </div>
+              <button type="submit">Отправить</button>
+            </form>
+          </div>
+          <h2>Мои публикации</h2>
+        </div>
+
+        <div id="translator-panel" class="role-panel hidden">
+          <div class="filters">
+            <button class="filter-btn active" data-filter="all">Все</button>
+            <button class="filter-btn" data-filter="pending">На перевод</button>
+            <button class="filter-btn" data-filter="translated">Мои переводы</button>
+          </div>
+        </div>
+
+        <div id="executor-panel" class="role-panel hidden">
+          <div class="filters">
+            <button class="filter-btn active" data-filter="all">Все</button>
+            <button class="filter-btn" data-filter="available">Доступные</button>
+            <button class="filter-btn" data-filter="my_tasks">Мои задачи</button>
+            <button class="filter-btn" data-filter="completed">Завершённые</button>
+          </div>
+        </div>
+
+        <div id="tasks-list"></div>
+      </div>
+    </div>
+
+    <div id="translation-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="translation-task-title"></h2>
+          <button id="close-translation" class="modal-close">&times;</button>
+        </div>
+        <div id="translation-task-info"></div>
+        <form id="translation-form">
+          <div class="translation-fields">
+            <div class="translation-field">
+              <label for="trans-ru">Русский</label>
+              <textarea id="trans-ru" placeholder="Перевод на русский"></textarea>
+            </div>
+            <div class="translation-field">
+              <label for="trans-ro">Română</label>
+              <textarea id="trans-ro" placeholder="Traducere în română"></textarea>
+            </div>
+            <div class="translation-field">
+              <label for="trans-en">English</label>
+              <textarea id="trans-en" placeholder="English translation"></textarea>
+            </div>
+            <div class="translation-field">
+              <label for="trans-tr">Türkçe</label>
+              <textarea id="trans-tr" placeholder="Türkçe çeviri"></textarea>
+            </div>
+          </div>
+          <button type="submit" class="btn-submit-translation">Отправить перевод</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
