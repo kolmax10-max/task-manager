@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "db:check": "node scripts/check-neon.js"
+    "db:check": "node scripts/check-neon.js",
+    "db:init": "node scripts/init-db.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
