@@ -2,10 +2,24 @@ require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const { neon } = require('@neondatabase/serverless');
 const bcrypt = require('bcryptjs');
 
-const sql = neon(process.env.DATABASE_URL);
+let sqlSingleton;
+function getSql() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('DATABASE_URL не задан');
+  }
+  if (!sqlSingleton) {
+    sqlSingleton = neon(url);
+  }
+  return sqlSingleton;
+}
 
 async function initDB() {
-  await sql`
+  if (!process.env.DATABASE_URL) {
+    console.warn('DATABASE_URL не задан, пропуск инициализации БД');
+    return;
+  }
+  await getSql()`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username VARCHAR(255) UNIQUE NOT NULL,
@@ -15,7 +29,7 @@ async function initDB() {
     )
   `;
 
-  await sql`
+  await getSql()`
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
       title VARCHAR(255) NOT NULL,
@@ -34,7 +48,7 @@ async function initDB() {
     )
   `;
 
-  await sql`
+  await getSql()`
     CREATE TABLE IF NOT EXISTS attachments (
       id SERIAL PRIMARY KEY,
       task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
@@ -50,10 +64,10 @@ async function initDB() {
 }
 
 async function ensureAdmin() {
-  const existing = await sql`SELECT * FROM users WHERE username = 'superuser' LIMIT 1`;
+  const existing = await getSql()`SELECT * FROM users WHERE username = 'superuser' LIMIT 1`;
   if (existing.length === 0) {
     const passwordHash = await bcrypt.hash('Spmax-3450192384', 10);
-    await sql`
+    await getSql()`
       INSERT INTO users (username, password_hash, role)
       VALUES ('superuser', ${passwordHash}, 'admin')
     `;
@@ -61,17 +75,17 @@ async function ensureAdmin() {
 }
 
 async function getUserById(id) {
-  const rows = await sql`SELECT * FROM users WHERE id = ${id}`;
+  const rows = await getSql()`SELECT * FROM users WHERE id = ${id}`;
   return rows[0] || null;
 }
 
 async function getUserByUsername(username) {
-  const rows = await sql`SELECT * FROM users WHERE username = ${username}`;
+  const rows = await getSql()`SELECT * FROM users WHERE username = ${username}`;
   return rows[0] || null;
 }
 
 async function createUser(username, passwordHash, role = 'executor') {
-  const rows = await sql`
+  const rows = await getSql()`
     INSERT INTO users (username, password_hash, role)
     VALUES (${username}, ${passwordHash}, ${role})
     RETURNING *
@@ -80,7 +94,7 @@ async function createUser(username, passwordHash, role = 'executor') {
 }
 
 async function getAllTasks() {
-  const tasks = await sql`
+  const tasks = await getSql()`
     SELECT t.*,
       cu.username AS creator_name,
       tu.username AS translator_name,
@@ -106,7 +120,7 @@ async function getAllTasks() {
 }
 
 async function getTaskById(id) {
-  const rows = await sql`
+  const rows = await getSql()`
     SELECT t.*,
       cu.username AS creator_name,
       tu.username AS translator_name,
@@ -133,11 +147,11 @@ async function getTaskById(id) {
 }
 
 async function getAttachmentsForTask(taskId) {
-  return await sql`SELECT * FROM attachments WHERE task_id = ${taskId}`;
+  return await getSql()`SELECT * FROM attachments WHERE task_id = ${taskId}`;
 }
 
 async function createTask(title, description, created_by, attachments = []) {
-  const taskRows = await sql`
+  const taskRows = await getSql()`
     INSERT INTO tasks (title, description, created_by)
     VALUES (${title}, ${description || ''}, ${created_by})
     RETURNING *
@@ -146,7 +160,7 @@ async function createTask(title, description, created_by, attachments = []) {
   const task = taskRows[0];
 
   for (const att of attachments) {
-    await sql`
+    await getSql()`
       INSERT INTO attachments (task_id, filename, original_name, mimetype, size, url)
       VALUES (${task.id}, ${att.filename}, ${att.originalName}, ${att.mimetype}, ${att.size}, ${att.url})
     `;
@@ -181,7 +195,7 @@ async function updateTask(id, updates) {
   setClauses.push(`updated_at = NOW()`);
   values.push(id);
 
-  await sql.query(
+  await getSql().query(
     `UPDATE tasks SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
     values
   );
@@ -190,7 +204,7 @@ async function updateTask(id, updates) {
 }
 
 async function deleteTask(id) {
-  const result = await sql`DELETE FROM tasks WHERE id = ${id}`;
+  const result = await getSql()`DELETE FROM tasks WHERE id = ${id}`;
   return result.count > 0;
 }
 
