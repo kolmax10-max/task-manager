@@ -22,13 +22,13 @@ router.post('/register', async (req, res) => {
 
     const userRole = VALID_ROLES.includes(role) ? role : 'executor';
 
-    const existing = getUserByUsername(username);
+    const existing = await getUserByUsername(username);
     if (existing) {
       return res.status(409).json({ error: 'Имя занято' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = createUser(username, passwordHash, userRole);
+    const user = await createUser(username, passwordHash, userRole);
 
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
 
@@ -46,7 +46,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Укажите имя и пароль' });
     }
 
-    const user = getUserByUsername(username);
+    const user = await getUserByUsername(username);
     if (!user) {
       return res.status(401).json({ error: 'Неверное имя или пароль' });
     }
@@ -64,8 +64,8 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.get('/me', authenticateToken, (req, res) => {
-  const user = getUserById(req.user.id);
+router.get('/me', authenticateToken, async (req, res) => {
+  const user = await getUserById(req.user.id);
 
   if (!user) {
     return res.status(404).json({ error: 'Пользователь не найден' });

@@ -1,21 +1,13 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const archiver = require('archiver');
+const { put, del } = require('@vercel/blob');
 const { getAllTasks, getTaskById, createTask, updateTask, deleteTask } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
-const storage = multer.diskStorage({
-  destination: path.join(__dirname, '..', 'uploads'),
-  filename: (req, file, cb) => {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, unique + path.extname(file.originalname));
-  }
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = [
@@ -81,27 +73,27 @@ function getVisibleTasks(tasks, user, filter) {
   }
 }
 
-router.get('/', authenticateToken, (req, res) => {
-  const tasks = getAllTasks();
+router.get('/', authenticateToken, async (req, res) => {
+  const tasks = await getAllTasks();
   res.json({ tasks: filterTasksByRole(tasks, req.user) });
 });
 
-router.get('/history', authenticateToken, (req, res) => {
-  const tasks = getAllTasks();
+router.get('/history', authenticateToken, async (req, res) => {
+  const tasks = await getAllTasks();
   res.json({ tasks: getVisibleTasks(tasks, req.user, req.query.filter || 'all') });
 });
 
-router.get('/my', authenticateToken, (req, res) => {
-  const tasks = getAllTasks().filter(t => t.created_by === req.user.id || t.assigned_to === req.user.id);
+router.get('/my', authenticateToken, async (req, res) => {
+  const tasks = (await getAllTasks()).filter(t => t.created_by === req.user.id || t.assigned_to === req.user.id);
   res.json({ tasks: filterTasksByRole(tasks, req.user) });
 });
 
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   if (req.user.role !== 'author' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Только авторы могут создавать задачи' });
   }
 
-  upload.array('attachments', 10)(req, res, (err) => {
+  upload.array('attachments', 10)(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ error: err.message });
     }
@@ -112,25 +104,34 @@ router.post('/', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Укажите заголовок' });
     }
 
-    const attachments = req.files ? req.files.map(f => ({
-      filename: f.filename,
-      originalName: f.originalname,
-      mimetype: f.mimetype,
-      size: f.size,
-      url: '/uploads/' + f.filename
-    })) : [];
+    let attachments = [];
+    if (req.files && req.files.length) {
+      for (const file of req.files) {
+        const blob = await put(`attachments/${Date.now()}-${file.originalname}`, file.buffer, {
+          access: 'public',
+          contentType: file.mimetype
+        });
+        attachments.push({
+          filename: blob.pathname,
+          originalName: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          url: blob.url
+        });
+      }
+    }
 
-    const task = createTask(title, description, req.user.id, attachments);
+    const task = await createTask(title, description, req.user.id, attachments);
     res.status(201).json({ task });
   });
 });
 
-router.post('/:id/translate', authenticateToken, (req, res) => {
+router.post('/:id/translate', authenticateToken, async (req, res) => {
   if (req.user.role !== 'translator') {
     return res.status(403).json({ error: 'Только переводчики могут переводить' });
   }
 
-  const task = getTaskById(parseInt(req.params.id));
+  const task = await getTaskById(parseInt(req.params.id));
   if (!task) {
     return res.status(404).json({ error: 'Задача не найдена' });
   }
@@ -144,7 +145,7 @@ router.post('/:id/translate', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Укажите хотя бы один перевод' });
   }
 
-  const updated = updateTask(parseInt(req.params.id), {
+  const updated = await updateTask(parseInt(req.params.id), {
     translations: { ru: ru || '', ro: ro || '', en: en || '', tr: tr || '' },
     translated_by: req.user.id,
     translation_status: 'approved',
@@ -154,12 +155,12 @@ router.post('/:id/translate', authenticateToken, (req, res) => {
   res.json({ task: updated });
 });
 
-router.post('/:id/take', authenticateToken, (req, res) => {
+router.post('/:id/take', authenticateToken, async (req, res) => {
   if (req.user.role !== 'executor') {
     return res.status(403).json({ error: 'Только исполнители могут брать задачи' });
   }
 
-  const task = getTaskById(parseInt(req.params.id));
+  const task = await getTaskById(parseInt(req.params.id));
   if (!task) {
     return res.status(404).json({ error: 'Задача не найдена' });
   }
@@ -172,12 +173,12 @@ router.post('/:id/take', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Задачу уже взяли в работу' });
   }
 
-  const updated = updateTask(parseInt(req.params.id), { status: 'in_progress', assigned_to: req.user.id });
+  const updated = await updateTask(parseInt(req.params.id), { status: 'in_progress', assigned_to: req.user.id });
   res.json({ task: updated });
 });
 
-router.post('/:id/complete', authenticateToken, (req, res) => {
-  const task = getTaskById(parseInt(req.params.id));
+router.post('/:id/complete', authenticateToken, async (req, res) => {
+  const task = await getTaskById(parseInt(req.params.id));
   if (!task) {
     return res.status(404).json({ error: 'Задача не найдена' });
   }
@@ -186,39 +187,40 @@ router.post('/:id/complete', authenticateToken, (req, res) => {
     return res.status(403).json({ error: 'Только исполнитель может завершить задачу' });
   }
 
-  const updated = updateTask(parseInt(req.params.id), { status: 'completed' });
+  const updated = await updateTask(parseInt(req.params.id), { status: 'completed' });
   res.json({ task: updated });
 });
 
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Только администратор может удалять задачи' });
   }
 
-  const task = getTaskById(parseInt(req.params.id));
+  const task = await getTaskById(parseInt(req.params.id));
   if (!task) {
     return res.status(404).json({ error: 'Задача не найдена' });
   }
 
   if (task.attachments) {
-    task.attachments.forEach(att => {
-      const filePath = path.join(__dirname, '..', att.url);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+    for (const att of task.attachments) {
+      try {
+        await del(att.url);
+      } catch (e) {
+        console.error('Failed to delete blob:', att.url, e);
       }
-    });
+    }
   }
 
-  deleteTask(parseInt(req.params.id));
+  await deleteTask(parseInt(req.params.id));
   res.json({ message: 'Задача удалена' });
 });
 
-router.get('/:id/download-zip', authenticateToken, (req, res) => {
+router.get('/:id/download-zip', authenticateToken, async (req, res) => {
   if (req.user.role !== 'executor' && req.user.role !== 'translator') {
     return res.status(403).json({ error: 'Нет доступа' });
   }
 
-  const task = getTaskById(parseInt(req.params.id));
+  const task = await getTaskById(parseInt(req.params.id));
   if (!task) {
     return res.status(404).json({ error: 'Задача не найдена' });
   }
@@ -236,12 +238,15 @@ router.get('/:id/download-zip', authenticateToken, (req, res) => {
   res.attachment(`task-${task.id}-files.zip`);
   archive.pipe(res);
 
-  task.attachments.forEach(att => {
-    const filePath = path.join(__dirname, '..', att.url);
-    if (fs.existsSync(filePath)) {
-      archive.file(filePath, { name: att.originalName });
+  for (const att of task.attachments) {
+    try {
+      const response = await fetch(att.url);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      archive.append(buffer, { name: att.originalName });
+    } catch (e) {
+      console.error('Failed to fetch blob for ZIP:', att.url, e);
     }
-  });
+  }
 
   archive.finalize();
 });
