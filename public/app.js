@@ -335,6 +335,7 @@ async function loadTasks() {
     renderTasks(data.tasks);
   } catch (err) {
     console.error(err);
+    showToast(err.message || 'Не удалось загрузить список публикаций');
   }
 }
 
@@ -495,15 +496,20 @@ async function rejectUserRegistration(userId) {
   loadAdminStats();
 }
 
+/** Один PUT до лимита токена (50 МБ). Multipart включаем только для очень больших файлов — иначе на части окружений MPU даёт сбои без явной ошибки. */
+const MULTIPART_UPLOAD_THRESHOLD_BYTES = 80 * 1024 * 1024;
+
 async function uploadFilesViaBlobClient(files) {
   const { upload } = await loadBlobClientModule();
   const handleUploadUrl = `${window.location.origin}${API}/blob/client-upload`;
   const attachmentsMeta = [];
   for (const file of files) {
-    const result = await upload(file.name, file, {
+    const pathname = (file.name || 'file').replace(/^.*[/\\]/, '').slice(0, 200) || 'file';
+    const result = await upload(pathname, file, {
       access: 'public',
       handleUploadUrl,
-      multipart: file.size >= 4 * 1024 * 1024,
+      multipart: file.size > MULTIPART_UPLOAD_THRESHOLD_BYTES,
+      ...(file.type ? { contentType: file.type } : {}),
       headers: { Authorization: `Bearer ${token}` }
     });
     attachmentsMeta.push({
@@ -523,7 +529,7 @@ async function createTaskJson(title, description, attachmentsMeta) {
     body: JSON.stringify({ title, description, attachments: attachmentsMeta })
   });
   loadTasks();
-  if (currentUser.role === 'admin') loadAdminStats();
+  if (currentUser?.role === 'admin') loadAdminStats();
 }
 
 async function createTaskMultipart(formData) {
@@ -533,7 +539,7 @@ async function createTaskMultipart(formData) {
     formData: true
   });
   loadTasks();
-  if (currentUser.role === 'admin') loadAdminStats();
+  if (currentUser?.role === 'admin') loadAdminStats();
 }
 
 async function translateTask(id, translations) {
@@ -558,7 +564,7 @@ async function deleteTask(id) {
   if (!confirm('Удалить задачу?')) return;
   await api(`/tasks/${id}`, { method: 'DELETE' });
   loadTasks();
-  if (currentUser.role === 'admin') loadAdminStats();
+  if (currentUser?.role === 'admin') loadAdminStats();
 }
 
 async function downloadZip(id) {
@@ -630,8 +636,10 @@ $$('.tab').forEach(tab => {
     $$('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     const isLogin = tab.dataset.tab === 'login';
-    $('#login-form').classList.toggle('hidden', !isLogin);
-    $('#register-form').classList.toggle('hidden', isLogin);
+    const loginFormEl = $('#login-form');
+    const registerFormEl = $('#register-form');
+    if (loginFormEl) loginFormEl.classList.toggle('hidden', !isLogin);
+    if (registerFormEl) registerFormEl.classList.toggle('hidden', isLogin);
     $('#auth-error').classList.add('hidden');
     $('#auth-error').classList.remove('auth-success');
 
@@ -661,39 +669,49 @@ $$('.tab').forEach(tab => {
 });
 
 // Login form
-$('#login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    await login($('#login-username').value, $('#login-password').value);
-  } catch (err) {
-    $('#auth-error').textContent = err.message;
-    $('#auth-error').classList.remove('hidden');
-  }
-});
+const loginForm = $('#login-form');
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await login($('#login-username').value, $('#login-password').value);
+    } catch (err) {
+      $('#auth-error').textContent = err.message;
+      $('#auth-error').classList.remove('hidden');
+    }
+  });
+}
 
 // Register form
-$('#register-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    $('#auth-error').classList.remove('auth-success');
-    await submitRegister(
-      $('#register-username').value.trim(),
-      $('#register-password').value,
-      $('#register-role').value
-    );
-  } catch (err) {
-    $('#auth-error').textContent = err.message;
-    $('#auth-error').classList.remove('hidden', 'auth-success');
-  }
-});
+const registerForm = $('#register-form');
+if (registerForm) {
+  registerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      $('#auth-error').classList.remove('auth-success');
+      await submitRegister(
+        $('#register-username').value.trim(),
+        $('#register-password').value,
+        $('#register-role').value
+      );
+    } catch (err) {
+      $('#auth-error').textContent = err.message;
+      $('#auth-error').classList.remove('hidden', 'auth-success');
+    }
+  });
+}
 
 // Logout
-$('#logout-btn').addEventListener('click', logout);
+const logoutBtn = $('#logout-btn');
+if (logoutBtn) logoutBtn.addEventListener('click', logout);
 
 // File preview
-$('#task-attachments').addEventListener('change', (e) => {
+const taskAttachmentsInput = $('#task-attachments');
+if (taskAttachmentsInput) {
+  taskAttachmentsInput.addEventListener('change', (e) => {
   selectedFiles = Array.from(e.target.files);
   const container = $('#file-preview-container');
+  if (!container) return;
   container.innerHTML = '';
 
   if (selectedFiles.length) {
@@ -736,6 +754,7 @@ $('#task-attachments').addEventListener('change', (e) => {
         const idx = selectedFiles.indexOf(file);
         if (idx > -1) selectedFiles.splice(idx, 1);
         const input = $('#task-attachments');
+        if (!input) return;
         const dt = new DataTransfer();
         selectedFiles.forEach(f => dt.items.add(f));
         input.files = dt.files;
@@ -757,7 +776,9 @@ $('#task-attachments').addEventListener('change', (e) => {
     container.innerHTML = '';
     updateAttachmentSummaryLabel();
   }
-});
+  });
+}
+
 
 // Create task
 (function bindCreateTaskForm() {
@@ -770,9 +791,18 @@ $('#task-attachments').addEventListener('change', (e) => {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const title = $('#task-title').value.trim();
-    const description = $('#task-description').value.trim();
-    if (!title) return;
+    const titleInput = $('#task-title');
+    const descriptionInput = $('#task-description');
+    if (!titleInput || !descriptionInput) {
+      showToast('Форма публикации повреждена: обновите страницу.', 'error');
+      return;
+    }
+    const title = titleInput.value.trim();
+    const description = descriptionInput.value.trim();
+    if (!title) {
+      showToast('Укажите заголовок', 'info');
+      return;
+    }
 
     if (selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES)) {
       showToast(`Один файл не больше ${formatBytesReadable(MAX_BLOB_FILE_BYTES)}`, 'error');
@@ -785,6 +815,7 @@ $('#task-attachments').addEventListener('change', (e) => {
       if (selectedFiles.length === 0) {
         await createTaskJson(title, description, []);
       } else {
+        showToast('Загрузка файлов…', 'info');
         const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
         try {
           const attachmentsMeta = await uploadFilesViaBlobClient(selectedFiles);
@@ -803,9 +834,10 @@ $('#task-attachments').addEventListener('change', (e) => {
         }
       }
 
-      $('#task-title').value = '';
-      $('#task-description').value = '';
-      $('#task-attachments').value = '';
+      titleInput.value = '';
+      descriptionInput.value = '';
+      const attInput = $('#task-attachments');
+      if (attInput) attInput.value = '';
       selectedFiles = [];
       const container = $('#file-preview-container');
       if (container) {
@@ -823,35 +855,42 @@ $('#task-attachments').addEventListener('change', (e) => {
 })();
 
 // Translation form
-$('#translation-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if (!currentTranslationTaskId) return;
+const translationForm = $('#translation-form');
+if (translationForm) {
+  translationForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentTranslationTaskId) return;
 
-  const translations = {
-    ru: $('#trans-ru').value.trim(),
-    ro: $('#trans-ro').value.trim(),
-    en: $('#trans-en').value.trim(),
-    tr: $('#trans-tr').value.trim()
-  };
+    const translations = {
+      ru: $('#trans-ru').value.trim(),
+      ro: $('#trans-ro').value.trim(),
+      en: $('#trans-en').value.trim(),
+      tr: $('#trans-tr').value.trim()
+    };
 
-  if (!translations.ru && !translations.ro && !translations.en && !translations.tr) {
-    showToast('Укажите хотя бы один перевод', 'info');
-    return;
-  }
+    if (!translations.ru && !translations.ro && !translations.en && !translations.tr) {
+      showToast('Укажите хотя бы один перевод', 'info');
+      return;
+    }
 
-  try {
-    await translateTask(currentTranslationTaskId, translations);
-    closeTranslation();
-  } catch (err) {
-    showToast(err.message || 'Ошибка');
-  }
-});
+    try {
+      await translateTask(currentTranslationTaskId, translations);
+      closeTranslation();
+    } catch (err) {
+      showToast(err.message || 'Ошибка');
+    }
+  });
+}
 
 // Close translation modal
-$('#close-translation').addEventListener('click', closeTranslation);
-$('#translation-modal').addEventListener('click', (e) => {
-  if (e.target === $('#translation-modal')) closeTranslation();
-});
+const closeTranslationBtn = $('#close-translation');
+if (closeTranslationBtn) closeTranslationBtn.addEventListener('click', closeTranslation);
+const translationModal = $('#translation-modal');
+if (translationModal) {
+  translationModal.addEventListener('click', (e) => {
+    if (e.target === translationModal) closeTranslation();
+  });
+}
 
 // Filters
 $$('.filter-btn').forEach(btn => {

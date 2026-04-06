@@ -62,6 +62,16 @@ async function initDB() {
     )
   `;
 
+  await getSql()`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachments_removed_at TIMESTAMP NULL`;
+  await getSql()`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS storage_day DATE NULL`;
+
+  await getSql()`
+    UPDATE attachments a
+    SET storage_day = (t.created_at)::date
+    FROM tasks t
+    WHERE a.task_id = t.id AND a.storage_day IS NULL
+  `;
+
   await ensureAdmin();
 }
 
