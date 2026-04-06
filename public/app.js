@@ -106,6 +106,11 @@ function showToast(message, variant = 'error') {
   toastAutoRemoveTimer = setTimeout(() => el.remove(), 8000);
 }
 
+const ACCOUNT_STATUS_LABELS = {
+  pending: 'Ожидает одобрения',
+  approved: 'Активен'
+};
+
 const ROLE_LABELS = {
   admin: 'Администратор',
   author: 'Автор',
@@ -181,6 +186,7 @@ function showRolePanel() {
   if (currentUser.role === 'admin') {
     loadAdminStats();
     loadPendingRegistrations();
+    loadAdminUsers();
   }
 }
 
@@ -483,6 +489,7 @@ async function approveUserRegistration(userId) {
     body: JSON.stringify({})
   });
   await loadPendingRegistrations();
+  await loadAdminUsers();
   loadAdminStats();
 }
 
@@ -493,7 +500,66 @@ async function rejectUserRegistration(userId) {
     body: JSON.stringify({})
   });
   await loadPendingRegistrations();
+  await loadAdminUsers();
   loadAdminStats();
+}
+
+async function loadAdminUsers() {
+  const list = $('#admin-users-list');
+  if (!list || currentUser?.role !== 'admin') return;
+
+  try {
+    const data = await api('/admin/users');
+    const users = data.users || [];
+
+    if (!users.length) {
+      list.innerHTML = '<p class="empty-hint">Нет пользователей</p>';
+      return;
+    }
+
+    list.innerHTML = users
+      .map((u) => {
+        const statusLabel = ACCOUNT_STATUS_LABELS[u.account_status] || u.account_status;
+        const isSelf = Number(u.id) === Number(currentUser.id);
+        const deleteBtn = isSelf
+          ? '<span class="admin-user-self-hint">это вы</span>'
+          : `<button type="button" class="btn-user-delete" data-id="${u.id}">Удалить</button>`;
+        return `
+      <div class="admin-user-card">
+        <div class="admin-user-info">
+          <strong>${escapeHtml(u.username)}</strong>
+          <span>${escapeHtml(ROLE_LABELS[u.role] || u.role)}</span>
+          <span class="admin-user-status admin-user-status--${escapeHtml(u.account_status)}">${escapeHtml(statusLabel)}</span>
+          <span class="pending-reg-date">${new Date(u.created_at).toLocaleString('ru')}</span>
+        </div>
+        <div class="admin-user-actions">${deleteBtn}</div>
+      </div>`;
+      })
+      .join('');
+
+    list.querySelectorAll('.btn-user-delete').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.dataset.id);
+        const name = btn.closest('.admin-user-card')?.querySelector('strong')?.textContent || '';
+        deleteAdminUser(id, name);
+      });
+    });
+  } catch (err) {
+    list.innerHTML = `<p class="pending-reg-error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function deleteAdminUser(userId, username) {
+  if (!confirm(`Удалить пользователя «${username}»? Это действие необратимо.`)) return;
+  try {
+    await api(`/admin/users/${userId}`, { method: 'DELETE', body: JSON.stringify({}) });
+    showToast(`Пользователь «${username}» удалён`, 'success');
+    await loadAdminUsers();
+    await loadPendingRegistrations();
+    loadAdminStats();
+  } catch (err) {
+    showToast(err.message || 'Не удалось удалить пользователя');
+  }
 }
 
 /** Один PUT до лимита токена (50 МБ). Multipart включаем только для очень больших файлов — иначе на части окружений MPU даёт сбои без явной ошибки. */

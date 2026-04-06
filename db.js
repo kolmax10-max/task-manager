@@ -133,6 +133,46 @@ async function rejectRegistration(userId) {
   return rows[0] || null;
 }
 
+async function listUsersForAdmin() {
+  return await getSql()`
+    SELECT id, username, role, account_status, created_at
+    FROM users
+    ORDER BY created_at ASC
+  `;
+}
+
+async function adminDeleteUser(userId, actorUserId) {
+  if (Number(userId) === Number(actorUserId)) {
+    return { ok: false, error: 'SELF_DELETE' };
+  }
+  const target = await getUserById(userId);
+  if (!target) {
+    return { ok: false, error: 'NOT_FOUND' };
+  }
+  if (target.role === 'admin') {
+    const countRows = await getSql()`
+      SELECT COUNT(*)::int AS c FROM users WHERE role = 'admin'
+    `;
+    if (countRows[0].c <= 1) {
+      return { ok: false, error: 'LAST_ADMIN' };
+    }
+  }
+  const refRows = await getSql()`
+    SELECT COUNT(*)::int AS c FROM tasks
+    WHERE created_by = ${userId}
+       OR translated_by = ${userId}
+       OR assigned_to = ${userId}
+  `;
+  if (refRows[0].c > 0) {
+    return { ok: false, error: 'HAS_TASKS', taskCount: refRows[0].c };
+  }
+  const deleted = await getSql()`DELETE FROM users WHERE id = ${userId} RETURNING id, username`;
+  if (!deleted.length) {
+    return { ok: false, error: 'NOT_FOUND' };
+  }
+  return { ok: true, deleted: deleted[0] };
+}
+
 async function getAllTasks() {
   const tasks = await getSql()`
     SELECT t.*,
@@ -256,6 +296,8 @@ module.exports = {
   getPendingRegistrations,
   approveRegistration,
   rejectRegistration,
+  listUsersForAdmin,
+  adminDeleteUser,
   getAllTasks,
   getTaskById,
   createTask,

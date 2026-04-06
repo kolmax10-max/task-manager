@@ -802,6 +802,88 @@ header h1 {
   color: #c0392b;
 }
 
+.admin-users-block {
+  margin-bottom: 1.5rem;
+}
+
+.admin-users-block h3 {
+  font-size: 1rem;
+  color: #333;
+  margin-bottom: 0.75rem;
+}
+
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.admin-user-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 10px;
+}
+
+.admin-user-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+
+.admin-user-info strong {
+  color: #333;
+}
+
+.admin-user-status {
+  font-size: 0.85rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+  background: #f0f3f6;
+  color: #444;
+}
+
+.admin-user-status--approved {
+  background: #e6ffed;
+  color: #1a7f37;
+}
+
+.admin-user-status--pending {
+  background: #fff8e6;
+  color: #946200;
+}
+
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-user-self-hint {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.btn-user-delete {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e1a5a5;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background: #fdf2f2;
+  color: #c0392b;
+}
+
+.btn-user-delete:hover {
+  background: #fadbd8;
+}
+
 .toast-container {
   position: fixed;
   bottom: 1.25rem;
