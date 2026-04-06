@@ -1009,20 +1009,35 @@ if (taskAttachmentsInput) {
       if (selectedFiles.length === 0) {
         await createTaskJson(title, description, []);
       } else {
-        showToast('Загрузка файлов…', 'info');
         const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
-        try {
-          const attachmentsMeta = await uploadFilesViaBlobClient(selectedFiles);
-          await createTaskJson(title, description, attachmentsMeta);
-        } catch (blobErr) {
-          if (totalBytes <= MAX_LEGACY_FORM_TOTAL_BYTES) {
-            const formData = new FormData();
-            formData.append('title', title);
-            formData.append('description', description);
-            selectedFiles.forEach((f) => formData.append('attachments', f));
-            await createTaskMultipart(formData);
-          } else {
-            showToast(describeBlobUploadError(blobErr), 'error');
+        // До лимита тела запроса на Vercel (~4 МБ): сразу multipart — сервер сам кладёт в Blob, без клиентского токена (не зависает).
+        if (totalBytes <= MAX_LEGACY_FORM_TOTAL_BYTES) {
+          const formData = new FormData();
+          formData.append('title', title);
+          formData.append('description', description);
+          selectedFiles.forEach((f) => formData.append('attachments', f));
+          await createTaskMultipart(formData);
+        } else {
+          const BLOB_DEADLINE_MS = 120000;
+          showToast('Загрузка больших файлов…', 'info');
+          try {
+            const attachmentsMeta = await Promise.race([
+              uploadFilesViaBlobClient(selectedFiles),
+              new Promise((_, rej) => {
+                setTimeout(
+                  () =>
+                    rej(
+                      new Error(
+                        'Превышено время ожидания загрузки. Проверьте сеть или отправьте файлы по одному до 4 МБ.'
+                      )
+                    ),
+                  BLOB_DEADLINE_MS
+                );
+              })
+            ]);
+            await createTaskJson(title, description, attachmentsMeta);
+          } catch (blobErr) {
+            showToast(describeBlobUploadError(blobErr) || blobErr.message || 'Ошибка загрузки файлов', 'error');
             return;
           }
         }
