@@ -382,6 +382,30 @@ async function loadTasks() {
   }
 }
 
+function bindTaskListActions() {
+  const list = $('#tasks-list');
+  if (!list || list.dataset.actionsBound === '1') return;
+  list.dataset.actionsBound = '1';
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-task-action]');
+    if (btn) {
+      const id = Number(btn.dataset.taskId);
+      if (!id) return;
+      const action = btn.dataset.taskAction;
+      const runAsync = (fn) =>
+        void Promise.resolve(fn(id)).catch((err) => showToast(err?.message || 'Ошибка'));
+      if (action === 'delete') runAsync(deleteTask);
+      else if (action === 'translate') openTranslation(id);
+      else if (action === 'zip') runAsync(downloadZip);
+      else if (action === 'take') runAsync(takeTask);
+      else if (action === 'complete') runAsync(completeTask);
+      return;
+    }
+    const thumb = e.target.closest('img.task-attachment-thumb');
+    if (thumb?.dataset.photoUrl) openPhoto(thumb.dataset.photoUrl);
+  });
+}
+
 function renderTasks(tasks) {
   const list = $('#tasks-list');
 
@@ -394,27 +418,27 @@ function renderTasks(tasks) {
     let actions = '';
 
     if (currentUser.role === 'admin') {
-      actions = `<button class="btn-delete" onclick="deleteTask(${task.id})">Удалить</button>`;
+      actions = `<button type="button" class="btn-delete" data-task-action="delete" data-task-id="${task.id}">Удалить</button>`;
     }
 
     if (currentUser.role === 'translator') {
       if (task.translation_status === 'pending') {
-        actions += `<button class="btn-translate" onclick="openTranslation(${task.id})">Перевести</button>`;
+        actions += `<button type="button" class="btn-translate" data-task-action="translate" data-task-id="${task.id}">Перевести</button>`;
       }
       if (task.attachments && task.attachments.length) {
-        actions += `<button class="btn-download-zip" onclick="downloadZip(${task.id})">Скачать файлы</button>`;
+        actions += `<button type="button" class="btn-download-zip" data-task-action="zip" data-task-id="${task.id}">Скачать файлы</button>`;
       }
     }
 
     if (currentUser.role === 'executor') {
       if (task.translation_status === 'approved' && task.status === 'pending') {
-        actions += `<button class="btn-take" onclick="takeTask(${task.id})">Взять в работу</button>`;
+        actions += `<button type="button" class="btn-take" data-task-action="take" data-task-id="${task.id}">Взять в работу</button>`;
       }
       if (task.status === 'in_progress' && Number(task.assigned_to) === Number(currentUser.id)) {
-        actions += `<button class="btn-complete" onclick="completeTask(${task.id})">Завершить</button>`;
+        actions += `<button type="button" class="btn-complete" data-task-action="complete" data-task-id="${task.id}">Завершить</button>`;
       }
       if (task.attachments && task.attachments.length) {
-        actions += `<button class="btn-download-zip" onclick="downloadZip(${task.id})">Скачать все файлы ZIP</button>`;
+        actions += `<button type="button" class="btn-download-zip" data-task-action="zip" data-task-id="${task.id}">Скачать все файлы ZIP</button>`;
       }
     }
 
@@ -432,7 +456,7 @@ function renderTasks(tasks) {
       attachmentsHtml = '<div class="attachments-list">' + task.attachments.map(att => {
         const isImage = att.mimetype && att.mimetype.startsWith('image/');
         if (isImage) {
-          return `<div class="attachment-item"><img src="${att.url}" alt="${escapeHtml(att.originalName)}" onclick="openPhoto('${att.url}')"></div>`;
+          return `<div class="attachment-item"><img class="task-attachment-thumb" src="${escapeHtml(att.url)}" alt="${escapeHtml(att.originalName)}" data-photo-url="${escapeHtml(att.url)}"></div>`;
         } else {
           const ext = att.originalName.split('.').pop().toUpperCase();
           return `<div class="attachment-item file-attachment"><a href="${att.url}" target="_blank"><div class="file-icon">${ext}</div><span class="file-name">${escapeHtml(att.originalName)}</span></a></div>`;
@@ -665,9 +689,13 @@ async function completeTask(id) {
 
 async function deleteTask(id) {
   if (!confirm('Удалить задачу?')) return;
-  await api(`/tasks/${id}`, { method: 'DELETE' });
-  loadTasks();
-  if (currentUser?.role === 'admin') loadAdminStats();
+  try {
+    await api(`/tasks/${id}`, { method: 'DELETE' });
+    loadTasks();
+    if (currentUser?.role === 'admin') loadAdminStats();
+  } catch (e) {
+    showToast(e.message || 'Не удалось удалить публикацию');
+  }
 }
 
 async function downloadZip(id) {
@@ -703,29 +731,31 @@ function openPhoto(src) {
 
 function openTranslation(id) {
   currentTranslationTaskId = id;
-  api('/tasks').then(data => {
-    const taskData = data.tasks.find(t => t.id === id);
-    if (!taskData) return;
+  api('/tasks')
+    .then((data) => {
+      const taskData = data.tasks.find((t) => t.id === id);
+      if (!taskData) return;
 
-    $('#translation-task-title').textContent = taskData.title;
-    let infoHtml = '';
-    if (taskData.description) infoHtml += `<p>${escapeHtml(taskData.description)}</p>`;
-    if (taskData.attachments && taskData.attachments.length) {
-      infoHtml += '<div class="modal-attachments"><strong>Вложения:</strong><ul>';
-      taskData.attachments.forEach(att => {
-        infoHtml += `<li><a href="${att.url}" target="_blank">${escapeHtml(att.originalName)}</a></li>`;
-      });
-      infoHtml += '</ul></div>';
-    }
-    $('#translation-task-info').innerHTML = infoHtml;
+      $('#translation-task-title').textContent = taskData.title;
+      let infoHtml = '';
+      if (taskData.description) infoHtml += `<p>${escapeHtml(taskData.description)}</p>`;
+      if (taskData.attachments && taskData.attachments.length) {
+        infoHtml += '<div class="modal-attachments"><strong>Вложения:</strong><ul>';
+        taskData.attachments.forEach((att) => {
+          infoHtml += `<li><a href="${att.url}" target="_blank">${escapeHtml(att.originalName)}</a></li>`;
+        });
+        infoHtml += '</ul></div>';
+      }
+      $('#translation-task-info').innerHTML = infoHtml;
 
-    $('#trans-ru').value = '';
-    $('#trans-ro').value = '';
-    $('#trans-en').value = '';
-    $('#trans-tr').value = '';
+      $('#trans-ru').value = '';
+      $('#trans-ro').value = '';
+      $('#trans-en').value = '';
+      $('#trans-tr').value = '';
 
-    $('#translation-modal').classList.remove('hidden');
-  });
+      $('#translation-modal').classList.remove('hidden');
+    })
+    .catch((e) => showToast(e.message || 'Не удалось открыть задачу'));
 }
 
 function closeTranslation() {
@@ -1026,6 +1056,7 @@ $$('.filter-btn').forEach(btn => {
 
 // Init
 (async function initApp() {
+  bindTaskListActions();
   await loadPublicConfig();
 
   if (token) {
