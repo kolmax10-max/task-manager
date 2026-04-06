@@ -10,8 +10,13 @@ let currentTranslationTaskId = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-/** Суммарный размер вложений: Vercel обрезает всё тело запроса ~4.5 МБ */
-const MAX_ATTACHMENTS_TOTAL_BYTES = 4 * 1024 * 1024;
+/** Прямая загрузка в Vercel Blob из браузера (лимит токена на сервере) */
+const MAX_BLOB_FILE_BYTES = 50 * 1024 * 1024;
+
+/** Запасной путь: multipart целиком в функцию (~4 МБ суммарно на запрос) */
+const MAX_LEGACY_FORM_TOTAL_BYTES = 4 * 1024 * 1024;
+
+const BLOB_CLIENT_MODULE_URL = 'https://esm.sh/@vercel/blob@2.3.3/client';
 
 function formatBytesReadable(bytes) {
   if (bytes == null || bytes < 0) return '0 Б';
@@ -29,7 +34,7 @@ function updateAttachmentSummaryLabel() {
   const labelWrap = label.closest('.file-label');
 
   if (!selectedFiles.length) {
-    label.textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+    label.textContent = 'Прикрепить файлы (на Vercel до ~50 МБ на файл)';
     labelWrap?.classList.remove('file-label--over-limit');
     return;
   }
@@ -37,7 +42,8 @@ function updateAttachmentSummaryLabel() {
   const total = selectedFiles.reduce((s, f) => s + f.size, 0);
   label.textContent = `Файлы выбраны: ${selectedFiles.length} шт. · всего ${formatBytesReadable(total)}`;
 
-  if (total > MAX_ATTACHMENTS_TOTAL_BYTES) {
+  const overLimit = selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES);
+  if (overLimit) {
     labelWrap?.classList.add('file-label--over-limit');
   } else {
     labelWrap?.classList.remove('file-label--over-limit');
@@ -463,7 +469,38 @@ async function rejectUserRegistration(userId) {
   loadAdminStats();
 }
 
-async function createTask(formData) {
+async function uploadFilesViaBlobClient(files) {
+  const { upload } = await import(BLOB_CLIENT_MODULE_URL);
+  const handleUploadUrl = `${window.location.origin}${API}/blob/client-upload`;
+  const attachmentsMeta = [];
+  for (const file of files) {
+    const result = await upload(file.name, file, {
+      access: 'public',
+      handleUploadUrl,
+      multipart: file.size >= 4 * 1024 * 1024,
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    attachmentsMeta.push({
+      filename: result.pathname,
+      originalName: file.name,
+      mimetype: file.type || 'application/octet-stream',
+      size: file.size,
+      url: result.url
+    });
+  }
+  return attachmentsMeta;
+}
+
+async function createTaskJson(title, description, attachmentsMeta) {
+  await api('/tasks', {
+    method: 'POST',
+    body: JSON.stringify({ title, description, attachments: attachmentsMeta })
+  });
+  loadTasks();
+  if (currentUser.role === 'admin') loadAdminStats();
+}
+
+async function createTaskMultipart(formData) {
   await api('/tasks', {
     method: 'POST',
     body: formData,
@@ -703,22 +740,37 @@ $('#create-task-form').addEventListener('submit', async (e) => {
   const description = $('#task-description').value.trim();
   if (!title) return;
 
-  const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
-  if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
-    showToast(
-      'Суммарный размер файлов больше ~4 МБ (ограничение хостинга). Уберите часть вложений или сожмите PDF.',
-      'error'
-    );
+  if (selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES)) {
+    showToast(`Один файл не больше ${formatBytesReadable(MAX_BLOB_FILE_BYTES)}`, 'error');
     return;
   }
 
-  const formData = new FormData();
-  formData.append('title', title);
-  formData.append('description', description);
-  selectedFiles.forEach(f => formData.append('attachments', f));
-
   try {
-    await createTask(formData);
+    if (selectedFiles.length === 0) {
+      await createTaskJson(title, description, []);
+    } else {
+      const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+      try {
+        const attachmentsMeta = await uploadFilesViaBlobClient(selectedFiles);
+        await createTaskJson(title, description, attachmentsMeta);
+      } catch (blobErr) {
+        if (totalBytes <= MAX_LEGACY_FORM_TOTAL_BYTES) {
+          const formData = new FormData();
+          formData.append('title', title);
+          formData.append('description', description);
+          selectedFiles.forEach((f) => formData.append('attachments', f));
+          await createTaskMultipart(formData);
+        } else {
+          showToast(
+            blobErr.message ||
+              'Не удалось загрузить файлы (нужен Vercel Blob). Для тяжёлых файлов настройте BLOB_READ_WRITE_TOKEN и сеть.',
+            'error'
+          );
+          return;
+        }
+      }
+    }
+
     $('#task-title').value = '';
     $('#task-description').value = '';
     $('#task-attachments').value = '';

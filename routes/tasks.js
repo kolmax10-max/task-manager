@@ -39,6 +39,15 @@ function sameUserId(a, b) {
   return Number(a) === Number(b);
 }
 
+function isAllowedBlobPublicUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname.toLowerCase().endsWith('.public.blob.vercel-storage.com');
+  } catch {
+    return false;
+  }
+}
+
 function filterTasksByRole(tasks, user) {
   switch (user.role) {
     case 'admin':
@@ -102,6 +111,38 @@ router.get('/my', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, async (req, res) => {
   if (req.user.role !== 'author' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Только авторы могут создавать задачи' });
+  }
+
+  if (Array.isArray(req.body?.attachments) && typeof req.body?.title === 'string') {
+    try {
+      const title = req.body.title.trim();
+      const description = typeof req.body.description === 'string' ? req.body.description : '';
+      if (!title) {
+        return res.status(400).json({ error: 'Укажите заголовок' });
+      }
+      const attachments = [];
+      for (const att of req.body.attachments) {
+        if (!att || typeof att.url !== 'string' || !isAllowedBlobPublicUrl(att.url)) {
+          return res.status(400).json({ error: 'Некорректная ссылка на файл' });
+        }
+        const size = Number(att.size);
+        if (size > 55 * 1024 * 1024) {
+          return res.status(400).json({ error: 'Слишком большой файл' });
+        }
+        attachments.push({
+          filename: String(att.filename || att.pathname || '').slice(0, 500),
+          originalName: String(att.originalName || 'file').slice(0, 255),
+          mimetype: String(att.mimetype || 'application/octet-stream').slice(0, 100),
+          size: Number.isFinite(size) && size >= 0 ? Math.floor(size) : 0,
+          url: att.url
+        });
+      }
+      const task = await createTask(title, description, req.user.id, attachments);
+      return res.status(201).json({ task });
+    } catch (e) {
+      console.error('create task json:', e);
+      return res.status(500).json({ error: e.message || 'Не удалось сохранить публикацию' });
+    }
   }
 
   upload.array('attachments', 10)(req, res, async (err) => {

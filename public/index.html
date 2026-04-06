@@ -73,7 +73,7 @@
               <textarea id="task-description" placeholder="Текст публикации"></textarea>
               <div class="file-upload">
                 <label for="task-attachments" class="file-label">
-                  <span id="file-label-text">Прикрепить файлы (фото, PDF, DOCX, ZIP)</span>
+                  <span id="file-label-text">Прикрепить файлы (на Vercel до ~50 МБ на файл)</span>
                   <input type="file" id="task-attachments" multiple accept="image/*,.pdf,.docx,.zip,.rar,.7z">
                 </label>
                 <div id="file-preview-container" class="hidden"></div>
@@ -139,6 +139,6 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
