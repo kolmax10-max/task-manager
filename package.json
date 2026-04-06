@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "db:check": "node scripts/check-neon.js",
-    "db:init": "node scripts/init-db.js"
+    "db:init": "node scripts/init-db.js",
+    "blob:bundle": "npx --yes esbuild node_modules/@vercel/blob/dist/client.js --bundle --format=esm --platform=browser --outfile=public/vendor/vercel-blob-client.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

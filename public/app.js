@@ -16,7 +16,33 @@ const MAX_BLOB_FILE_BYTES = 50 * 1024 * 1024;
 /** Запасной путь: multipart целиком в функцию (~4 МБ суммарно на запрос) */
 const MAX_LEGACY_FORM_TOTAL_BYTES = 4 * 1024 * 1024;
 
-const BLOB_CLIENT_MODULE_URL = 'https://esm.sh/@vercel/blob@2.3.3/client';
+/** Сначала свой домен (обход блокировок CDN); иначе внешний esm */
+async function loadBlobClientModule() {
+  const urls = [
+    `${window.location.origin}/vendor/vercel-blob-client.js`,
+    'https://esm.sh/@vercel/blob@2.3.3/client'
+  ];
+  let lastErr;
+  for (const url of urls) {
+    try {
+      return await import(url);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+function describeBlobUploadError(err) {
+  const m = err && err.message ? String(err.message) : '';
+  if (/Failed to retrieve|client token|BlobError/i.test(m)) {
+    return 'Не удалось начать загрузку: проверьте вход, BLOB_READ_WRITE_TOKEN и redeploy.';
+  }
+  if (/fetch|Failed to fetch|dynamically imported|imported module|Loading module|NetworkError/i.test(m)) {
+    return 'Нет связи с модулем загрузки. Обновите страницу или попробуйте позже.';
+  }
+  return m || 'Ошибка загрузки файла';
+}
 
 function formatBytesReadable(bytes) {
   if (bytes == null || bytes < 0) return '0 Б';
@@ -470,7 +496,7 @@ async function rejectUserRegistration(userId) {
 }
 
 async function uploadFilesViaBlobClient(files) {
-  const { upload } = await import(BLOB_CLIENT_MODULE_URL);
+  const { upload } = await loadBlobClientModule();
   const handleUploadUrl = `${window.location.origin}${API}/blob/client-upload`;
   const attachmentsMeta = [];
   for (const file of files) {
@@ -734,56 +760,67 @@ $('#task-attachments').addEventListener('change', (e) => {
 });
 
 // Create task
-$('#create-task-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const title = $('#task-title').value.trim();
-  const description = $('#task-description').value.trim();
-  if (!title) return;
-
-  if (selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES)) {
-    showToast(`Один файл не больше ${formatBytesReadable(MAX_BLOB_FILE_BYTES)}`, 'error');
+(function bindCreateTaskForm() {
+  const form = $('#create-task-form');
+  if (!form) {
+    console.error('create-task-form: элемент не найден');
     return;
   }
+  const submitBtn = form.querySelector('button[type="submit"]');
 
-  try {
-    if (selectedFiles.length === 0) {
-      await createTaskJson(title, description, []);
-    } else {
-      const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
-      try {
-        const attachmentsMeta = await uploadFilesViaBlobClient(selectedFiles);
-        await createTaskJson(title, description, attachmentsMeta);
-      } catch (blobErr) {
-        if (totalBytes <= MAX_LEGACY_FORM_TOTAL_BYTES) {
-          const formData = new FormData();
-          formData.append('title', title);
-          formData.append('description', description);
-          selectedFiles.forEach((f) => formData.append('attachments', f));
-          await createTaskMultipart(formData);
-        } else {
-          showToast(
-            blobErr.message ||
-              'Не удалось загрузить файлы (нужен Vercel Blob). Для тяжёлых файлов настройте BLOB_READ_WRITE_TOKEN и сеть.',
-            'error'
-          );
-          return;
-        }
-      }
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = $('#task-title').value.trim();
+    const description = $('#task-description').value.trim();
+    if (!title) return;
+
+    if (selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES)) {
+      showToast(`Один файл не больше ${formatBytesReadable(MAX_BLOB_FILE_BYTES)}`, 'error');
+      return;
     }
 
-    $('#task-title').value = '';
-    $('#task-description').value = '';
-    $('#task-attachments').value = '';
-    selectedFiles = [];
-    const container = $('#file-preview-container');
-    container.classList.add('hidden');
-    container.innerHTML = '';
-    updateAttachmentSummaryLabel();
-    showToast('Публикация отправлена', 'success');
-  } catch (err) {
-    showToast(err.message || 'Не удалось отправить публикацию');
-  }
-});
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      if (selectedFiles.length === 0) {
+        await createTaskJson(title, description, []);
+      } else {
+        const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+        try {
+          const attachmentsMeta = await uploadFilesViaBlobClient(selectedFiles);
+          await createTaskJson(title, description, attachmentsMeta);
+        } catch (blobErr) {
+          if (totalBytes <= MAX_LEGACY_FORM_TOTAL_BYTES) {
+            const formData = new FormData();
+            formData.append('title', title);
+            formData.append('description', description);
+            selectedFiles.forEach((f) => formData.append('attachments', f));
+            await createTaskMultipart(formData);
+          } else {
+            showToast(describeBlobUploadError(blobErr), 'error');
+            return;
+          }
+        }
+      }
+
+      $('#task-title').value = '';
+      $('#task-description').value = '';
+      $('#task-attachments').value = '';
+      selectedFiles = [];
+      const container = $('#file-preview-container');
+      if (container) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+      }
+      updateAttachmentSummaryLabel();
+      showToast('Публикация отправлена', 'success');
+    } catch (err) {
+      showToast(err.message || 'Не удалось отправить публикацию');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+})();
 
 // Translation form
 $('#translation-form').addEventListener('submit', async (e) => {
