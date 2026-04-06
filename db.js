@@ -29,6 +29,8 @@ async function initDB() {
     )
   `;
 
+  await getSql()`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) NOT NULL DEFAULT 'approved'`;
+
   await getSql()`
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
@@ -68,8 +70,8 @@ async function ensureAdmin() {
   if (existing.length === 0) {
     const passwordHash = await bcrypt.hash('Spmax-3450192384', 10);
     await getSql()`
-      INSERT INTO users (username, password_hash, role)
-      VALUES ('superuser', ${passwordHash}, 'admin')
+      INSERT INTO users (username, password_hash, role, account_status)
+      VALUES ('superuser', ${passwordHash}, 'admin', 'approved')
     `;
   }
 }
@@ -84,13 +86,41 @@ async function getUserByUsername(username) {
   return rows[0] || null;
 }
 
-async function createUser(username, passwordHash, role = 'executor') {
+async function createUser(username, passwordHash, role = 'executor', accountStatus = 'pending') {
   const rows = await getSql()`
-    INSERT INTO users (username, password_hash, role)
-    VALUES (${username}, ${passwordHash}, ${role})
+    INSERT INTO users (username, password_hash, role, account_status)
+    VALUES (${username}, ${passwordHash}, ${role}, ${accountStatus})
     RETURNING *
   `;
   return rows[0];
+}
+
+async function getPendingRegistrations() {
+  return await getSql()`
+    SELECT id, username, role, created_at
+    FROM users
+    WHERE account_status = 'pending'
+    ORDER BY created_at ASC
+  `;
+}
+
+async function approveRegistration(userId) {
+  const rows = await getSql()`
+    UPDATE users
+    SET account_status = 'approved'
+    WHERE id = ${userId} AND account_status = 'pending'
+    RETURNING id, username, role, account_status
+  `;
+  return rows[0] || null;
+}
+
+async function rejectRegistration(userId) {
+  const rows = await getSql()`
+    DELETE FROM users
+    WHERE id = ${userId} AND account_status = 'pending'
+    RETURNING id, username
+  `;
+  return rows[0] || null;
 }
 
 async function getAllTasks() {
@@ -208,4 +238,17 @@ async function deleteTask(id) {
   return result.count > 0;
 }
 
-module.exports = { initDB, getUserById, getUserByUsername, createUser, getAllTasks, getTaskById, createTask, updateTask, deleteTask };
+module.exports = {
+  initDB,
+  getUserById,
+  getUserByUsername,
+  createUser,
+  getPendingRegistrations,
+  approveRegistration,
+  rejectRegistration,
+  getAllTasks,
+  getTaskById,
+  createTask,
+  updateTask,
+  deleteTask
+};

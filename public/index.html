@@ -21,6 +21,7 @@
           <button type="submit">Войти</button>
         </form>
         <form id="register-form" class="auth-form hidden">
+          <input type="text" id="register-hp" class="hp-field" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
           <input type="text" id="register-username" placeholder="Имя пользователя" required>
           <input type="password" id="register-password" placeholder="Пароль" required>
           <select id="register-role">
@@ -28,6 +29,7 @@
             <option value="executor">Исполнитель</option>
             <option value="translator">Переводчик</option>
           </select>
+          <div id="turnstile-widget" class="turnstile-box"></div>
           <button type="submit">Зарегистрироваться</button>
         </form>
         <p id="auth-error" class="error hidden"></p>
@@ -48,6 +50,10 @@
         <div id="admin-panel" class="role-panel hidden">
           <div class="panel-header">
             <h2>Панель администратора</h2>
+          </div>
+          <div class="admin-pending-block">
+            <h3>Регистрации</h3>
+            <div id="pending-registrations-list" class="pending-registrations-list"></div>
           </div>
           <div class="stats" id="admin-stats"></div>
           <div class="filters">

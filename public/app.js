@@ -1,6 +1,8 @@
 const API = '/api';
 let token = localStorage.getItem('token');
 let currentUser = null;
+let turnstileSiteKey = '';
+let turnstileWidgetId = null;
 let currentFilter = 'all';
 let selectedFiles = [];
 let currentTranslationTaskId = null;
@@ -57,7 +59,10 @@ function showRolePanel() {
   const panel = $(`#${panelId}`);
   if (panel) panel.classList.remove('hidden');
 
-  if (currentUser.role === 'admin') loadAdminStats();
+  if (currentUser.role === 'admin') {
+    loadAdminStats();
+    loadPendingRegistrations();
+  }
 }
 
 async function loadAdminStats() {
@@ -93,15 +98,109 @@ async function login(username, password) {
   showMain();
 }
 
-async function register(username, password, role) {
-  const data = await api('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify({ username, password, role })
+async function loadPublicConfig() {
+  try {
+    const res = await fetch(`${API}/auth/public-config`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    turnstileSiteKey = String(data.turnstileSiteKey || '').trim();
+  } catch {
+    turnstileSiteKey = '';
+  }
+}
+
+function loadTurnstileScript() {
+  return new Promise((resolve, reject) => {
+    if (window.turnstile) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector('script[data-turnstile-api]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('Не удалось загрузить Turnstile')));
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    s.async = true;
+    s.defer = true;
+    s.dataset.turnstileApi = '1';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Не удалось загрузить Turnstile'));
+    document.head.appendChild(s);
   });
-  token = data.token;
-  currentUser = data.user;
-  localStorage.setItem('token', token);
-  showMain();
+}
+
+function unmountTurnstileWidget() {
+  const el = $('#turnstile-widget');
+  if (!el) return;
+  if (turnstileWidgetId != null && window.turnstile) {
+    try {
+      window.turnstile.remove(turnstileWidgetId);
+    } catch (_) {}
+  }
+  turnstileWidgetId = null;
+  el.innerHTML = '';
+  delete el.dataset.mounted;
+}
+
+function mountTurnstileWidget() {
+  const el = $('#turnstile-widget');
+  if (!el || !turnstileSiteKey || !window.turnstile) return;
+
+  if (el.dataset.mounted === '1' && turnstileWidgetId != null) {
+    try {
+      window.turnstile.reset(turnstileWidgetId);
+    } catch (_) {
+      unmountTurnstileWidget();
+    }
+    if (el.dataset.mounted === '1') return;
+  }
+
+  el.innerHTML = '';
+  turnstileWidgetId = window.turnstile.render(el, {
+    sitekey: turnstileSiteKey,
+    theme: 'light'
+  });
+  el.dataset.mounted = '1';
+}
+
+async function submitRegister(username, password, role) {
+  let turnstileToken = '';
+  if (turnstileSiteKey) {
+    if (!window.turnstile || turnstileWidgetId == null) {
+      throw new Error('Подождите загрузки проверки или обновите страницу');
+    }
+    turnstileToken = window.turnstile.getResponse(turnstileWidgetId) || '';
+    if (!turnstileToken) {
+      throw new Error('Пройдите проверку «Я не робот»');
+    }
+  }
+
+  const res = await fetch(`${API}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username,
+      password,
+      role,
+      turnstileToken: turnstileToken || undefined,
+      website: $('#register-hp').value
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'Ошибка регистрации');
+  }
+
+  if (turnstileWidgetId != null && window.turnstile) {
+    window.turnstile.reset(turnstileWidgetId);
+  }
+
+  $('#auth-error').classList.remove('hidden');
+  $('#auth-error').classList.add('auth-success');
+  $('#auth-error').textContent = data.message || 'Заявка отправлена';
 }
 
 function logout() {
@@ -217,6 +316,66 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+async function loadPendingRegistrations() {
+  const list = $('#pending-registrations-list');
+  if (!list || currentUser?.role !== 'admin') return;
+
+  try {
+    const res = await fetch(`${API}/admin/pending-registrations`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ошибка');
+
+    if (!data.registrations || !data.registrations.length) {
+      list.innerHTML = '<p class="empty-hint">Нет заявок на регистрацию</p>';
+      return;
+    }
+
+    list.innerHTML = data.registrations.map((r) => `
+      <div class="pending-reg-card">
+        <div class="pending-reg-info">
+          <strong>${escapeHtml(r.username)}</strong>
+          <span>${escapeHtml(ROLE_LABELS[r.role] || r.role)}</span>
+          <span class="pending-reg-date">${new Date(r.created_at).toLocaleString('ru')}</span>
+        </div>
+        <div class="pending-reg-actions">
+          <button type="button" class="btn-pending-approve" data-id="${r.id}">Одобрить</button>
+          <button type="button" class="btn-pending-reject" data-id="${r.id}">Отклонить</button>
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.btn-pending-approve').forEach((btn) => {
+      btn.addEventListener('click', () => approveUserRegistration(Number(btn.dataset.id)));
+    });
+    list.querySelectorAll('.btn-pending-reject').forEach((btn) => {
+      btn.addEventListener('click', () => rejectUserRegistration(Number(btn.dataset.id)));
+    });
+  } catch (err) {
+    list.innerHTML = `<p class="pending-reg-error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function approveUserRegistration(userId) {
+  await api(`/admin/registrations/${userId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+  await loadPendingRegistrations();
+  loadAdminStats();
+}
+
+async function rejectUserRegistration(userId) {
+  if (!confirm('Отклонить заявку? Логин освободится для новой регистрации.')) return;
+  await api(`/admin/registrations/${userId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+  await loadPendingRegistrations();
+  loadAdminStats();
+}
+
 async function createTask(formData) {
   await api('/tasks', {
     method: 'POST',
@@ -317,13 +476,37 @@ function closeTranslation() {
 
 // Auth tabs
 $$('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
+  tab.addEventListener('click', async () => {
     $$('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     const isLogin = tab.dataset.tab === 'login';
     $('#login-form').classList.toggle('hidden', !isLogin);
     $('#register-form').classList.toggle('hidden', isLogin);
     $('#auth-error').classList.add('hidden');
+    $('#auth-error').classList.remove('auth-success');
+
+    if (isLogin) {
+      unmountTurnstileWidget();
+    } else {
+      await loadPublicConfig();
+      if (!turnstileSiteKey) {
+        $('#auth-error').classList.remove('hidden');
+        $('#auth-error').textContent =
+          'Проверка «Я не робот» не настроена: на сервере нет TURNSTILE_SITE_KEY или нужен Redeploy. Для Preview добавьте ключи и для окружения Preview.';
+        return;
+      }
+      try {
+        await loadTurnstileScript();
+        mountTurnstileWidget();
+        if (turnstileWidgetId == null && turnstileSiteKey) {
+          $('#auth-error').classList.remove('hidden');
+          $('#auth-error').textContent = 'Не удалось показать проверку. Обновите страницу.';
+        }
+      } catch (e) {
+        $('#auth-error').classList.remove('hidden');
+        $('#auth-error').textContent = e.message || 'Ошибка загрузки проверки';
+      }
+    }
   });
 });
 
@@ -342,14 +525,15 @@ $('#login-form').addEventListener('submit', async (e) => {
 $('#register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    await register(
-      $('#register-username').value,
+    $('#auth-error').classList.remove('auth-success');
+    await submitRegister(
+      $('#register-username').value.trim(),
       $('#register-password').value,
       $('#register-role').value
     );
   } catch (err) {
     $('#auth-error').textContent = err.message;
-    $('#auth-error').classList.remove('hidden');
+    $('#auth-error').classList.remove('hidden', 'auth-success');
   }
 });
 
@@ -486,16 +670,21 @@ $$('.filter-btn').forEach(btn => {
 });
 
 // Init
-if (token) {
-  api('/auth/me')
-    .then(data => {
-      currentUser = data.user;
-      showMain();
-    })
-    .catch(() => {
-      localStorage.removeItem('token');
-      showAuth();
-    });
-} else {
-  showAuth();
-}
+(async function initApp() {
+  await loadPublicConfig();
+
+  if (token) {
+    api('/auth/me')
+      .then(data => {
+        currentUser = data.user;
+        showMain();
+      })
+      .catch(() => {
+        localStorage.removeItem('token');
+        token = null;
+        showAuth();
+      });
+  } else {
+    showAuth();
+  }
+})();
