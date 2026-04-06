@@ -116,6 +116,17 @@
       </div>
     </div>
 
+    <div id="confirm-modal" class="modal-overlay modal-overlay--confirm hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div class="confirm-dialog">
+        <h3 id="confirm-modal-title" class="confirm-dialog__title"></h3>
+        <p id="confirm-modal-message" class="confirm-dialog__text"></p>
+        <div class="confirm-dialog__actions">
+          <button type="button" id="confirm-modal-cancel" class="confirm-dialog__btn confirm-dialog__btn--secondary">Отмена</button>
+          <button type="button" id="confirm-modal-ok" class="confirm-dialog__btn confirm-dialog__btn--primary">Подтвердить</button>
+        </div>
+      </div>
+    </div>
+
     <div id="translation-modal" class="modal-overlay hidden">
       <div class="modal-content">
         <div class="modal-header">

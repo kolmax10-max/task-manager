@@ -106,6 +106,43 @@ function showToast(message, variant = 'error') {
   toastAutoRemoveTimer = setTimeout(() => el.remove(), 8000);
 }
 
+let confirmResolver = null;
+
+function showConfirm({ title, message, confirmText, cancelText, danger }) {
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+    const modal = $('#confirm-modal');
+    const titleEl = $('#confirm-modal-title');
+    const msgEl = $('#confirm-modal-message');
+    const ok = $('#confirm-modal-ok');
+    const cancel = $('#confirm-modal-cancel');
+    if (!modal || !titleEl || !msgEl || !ok || !cancel) {
+      resolve(false);
+      return;
+    }
+    titleEl.textContent = title || 'Подтверждение';
+    msgEl.textContent = message || '';
+    ok.textContent = confirmText || 'Подтвердить';
+    cancel.textContent = cancelText || 'Отмена';
+    ok.classList.toggle('confirm-dialog__btn--danger', Boolean(danger));
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    cancel.focus();
+  });
+}
+
+function finishConfirm(value) {
+  const modal = $('#confirm-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  if (confirmResolver) {
+    confirmResolver(Boolean(value));
+    confirmResolver = null;
+  }
+}
+
 const ACCOUNT_STATUS_LABELS = {
   pending: 'Ожидает одобрения',
   approved: 'Активен'
@@ -444,9 +481,12 @@ function renderTasks(tasks) {
 
     let statusText = '';
     if (currentUser.role === 'admin' || currentUser.role === 'author') {
-      const transStatus = task.translation_status === 'approved' ? 'Переведено' : 'Ожидает перевода';
       const workStatus = STATUS_LABELS[task.status] || task.status;
-      statusText = `${transStatus} / ${workStatus}`;
+      if (task.translation_status !== 'approved') {
+        statusText = `На перевод · ${workStatus}`;
+      } else {
+        statusText = workStatus;
+      }
     } else {
       statusText = STATUS_LABELS[task.status] || task.status;
     }
@@ -555,7 +595,14 @@ async function approveUserRegistration(userId) {
 }
 
 async function rejectUserRegistration(userId) {
-  if (!confirm('Отклонить заявку? Логин освободится для новой регистрации.')) return;
+  const ok = await showConfirm({
+    title: 'Отклонить заявку?',
+    message: 'Пользователь не получит доступ. Логин можно будет заново зарегистрировать.',
+    confirmText: 'Отклонить',
+    cancelText: 'Отмена',
+    danger: true
+  });
+  if (!ok) return;
   await api(`/admin/registrations/${userId}/reject`, {
     method: 'POST',
     body: JSON.stringify({})
@@ -611,7 +658,14 @@ async function loadAdminUsers() {
 }
 
 async function deleteAdminUser(userId, username) {
-  if (!confirm(`Удалить пользователя «${username}»? Это действие необратимо.`)) return;
+  const ok = await showConfirm({
+    title: 'Удалить пользователя?',
+    message: `Учётная запись «${username}» будет удалена без возможности восстановления.`,
+    confirmText: 'Удалить',
+    cancelText: 'Отмена',
+    danger: true
+  });
+  if (!ok) return;
   try {
     await api(`/admin/users/${userId}`, { method: 'DELETE', body: JSON.stringify({}) });
     showToast(`Пользователь «${username}» удалён`, 'success');
@@ -688,7 +742,14 @@ async function completeTask(id) {
 }
 
 async function deleteTask(id) {
-  if (!confirm('Удалить задачу?')) return;
+  const ok = await showConfirm({
+    title: 'Удалить публикацию?',
+    message: 'Запись и вложения будут удалены. Это действие нельзя отменить.',
+    confirmText: 'Удалить',
+    cancelText: 'Отмена',
+    danger: true
+  });
+  if (!ok) return;
   try {
     await api(`/tasks/${id}`, { method: 'DELETE' });
     loadTasks();
@@ -1025,6 +1086,17 @@ if (translationModal) {
   });
 }
 
+const confirmModal = $('#confirm-modal');
+const confirmOk = $('#confirm-modal-ok');
+const confirmCancel = $('#confirm-modal-cancel');
+if (confirmModal) {
+  confirmModal.addEventListener('click', (e) => {
+    if (e.target === confirmModal) finishConfirm(false);
+  });
+}
+if (confirmOk) confirmOk.addEventListener('click', () => finishConfirm(true));
+if (confirmCancel) confirmCancel.addEventListener('click', () => finishConfirm(false));
+
 const headerUsersBtn = $('#header-users-btn');
 if (headerUsersBtn) {
   headerUsersBtn.addEventListener('click', (e) => {
@@ -1040,7 +1112,14 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeHeaderUsersDropdown();
+  if (e.key !== 'Escape') return;
+  const cm = $('#confirm-modal');
+  if (cm && !cm.classList.contains('hidden')) {
+    e.preventDefault();
+    finishConfirm(false);
+    return;
+  }
+  closeHeaderUsersDropdown();
 });
 
 // Filters
