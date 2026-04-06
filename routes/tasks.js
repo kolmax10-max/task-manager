@@ -6,9 +6,12 @@ const { put, del } = require('@vercel/blob');
 const { getAllTasks, getTaskById, createTask, updateTask, deleteTask } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
+/** Лимит тела запроса у serverless (Vercel) ~4.5 МБ на весь multipart */
+const MAX_FILE_BYTES = 4 * 1024 * 1024;
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_FILE_BYTES },
   fileFilter: (req, file, cb) => {
     const allowed = [
       'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',

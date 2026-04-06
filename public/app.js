@@ -10,6 +10,39 @@ let currentTranslationTaskId = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+/** Суммарный размер вложений: Vercel обрезает всё тело запроса ~4.5 МБ */
+const MAX_ATTACHMENTS_TOTAL_BYTES = 4 * 1024 * 1024;
+
+let toastAutoRemoveTimer;
+function showToast(message, variant = 'error') {
+  const root = $('#toast-container');
+  if (!root || !message) return;
+
+  const el = document.createElement('div');
+  el.className = `toast toast--${variant}`;
+
+  const msg = document.createElement('p');
+  msg.className = 'toast-text';
+  msg.textContent = message;
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'toast-close';
+  close.setAttribute('aria-label', 'Закрыть');
+  close.textContent = '×';
+  close.addEventListener('click', () => {
+    el.remove();
+    clearTimeout(toastAutoRemoveTimer);
+  });
+
+  el.appendChild(msg);
+  el.appendChild(close);
+  root.appendChild(el);
+
+  clearTimeout(toastAutoRemoveTimer);
+  toastAutoRemoveTimer = setTimeout(() => el.remove(), 8000);
+}
+
 const ROLE_LABELS = {
   admin: 'Администратор',
   author: 'Автор',
@@ -45,11 +78,20 @@ async function api(endpoint, options = {}) {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 120) || 'Ошибка сервера');
+      data = {};
     }
   }
 
-  if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
+  if (!res.ok) {
+    const combined = [data.error, text].filter(Boolean).join(' ');
+    if (res.status === 413 || /FUNCTION_PAYLOAD_TOO_LARGE|Request Entity Too Large|PAYLOAD_TOO_LARGE/i.test(combined)) {
+      throw new Error(
+        'Файлы слишком большие: у сервера лимит ~4 МБ на отправку. Уменьшите вложения или отправьте без файлов.'
+      );
+    }
+    const fallback = text && !data.error ? text.replace(/<[^>]+>/g, '').trim().slice(0, 200) : '';
+    throw new Error(data.error || fallback || `Ошибка ${res.status}`);
+  }
   return data;
 }
 
@@ -444,7 +486,7 @@ async function downloadZip(id) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (err) {
-    alert(err.message);
+    showToast(err.message || 'Ошибка скачивания');
   }
 }
 
@@ -625,6 +667,15 @@ $('#create-task-form').addEventListener('submit', async (e) => {
   const description = $('#task-description').value.trim();
   if (!title) return;
 
+  const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
+  if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
+    showToast(
+      'Суммарный размер файлов больше ~4 МБ (ограничение хостинга). Уберите часть вложений или сожмите PDF.',
+      'error'
+    );
+    return;
+  }
+
   const formData = new FormData();
   formData.append('title', title);
   formData.append('description', description);
@@ -640,8 +691,9 @@ $('#create-task-form').addEventListener('submit', async (e) => {
     container.classList.add('hidden');
     container.innerHTML = '';
     $('#file-label-text').textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+    showToast('Публикация отправлена', 'success');
   } catch (err) {
-    alert(err.message || 'Не удалось отправить публикацию');
+    showToast(err.message || 'Не удалось отправить публикацию');
   }
 });
 
@@ -658,7 +710,7 @@ $('#translation-form').addEventListener('submit', async (e) => {
   };
 
   if (!translations.ru && !translations.ro && !translations.en && !translations.tr) {
-    alert('Укажите хотя бы один перевод');
+    showToast('Укажите хотя бы один перевод', 'info');
     return;
   }
 
@@ -666,7 +718,7 @@ $('#translation-form').addEventListener('submit', async (e) => {
     await translateTask(currentTranslationTaskId, translations);
     closeTranslation();
   } catch (err) {
-    alert(err.message);
+    showToast(err.message || 'Ошибка');
   }
 });
 
