@@ -32,12 +32,16 @@ const upload = multer({
 
 const router = express.Router();
 
+function sameUserId(a, b) {
+  return Number(a) === Number(b);
+}
+
 function filterTasksByRole(tasks, user) {
   switch (user.role) {
     case 'admin':
       return tasks;
     case 'author':
-      return tasks.filter(t => t.created_by === user.id);
+      return tasks.filter(t => sameUserId(t.created_by, user.id));
     case 'translator':
       return tasks;
     case 'executor':
@@ -56,16 +60,18 @@ function getVisibleTasks(tasks, user, filter) {
       if (filter === 'completed') return tasks.filter(t => t.status === 'completed');
       return tasks;
     case 'author':
-      return tasks.filter(t => t.created_by === user.id);
+      return tasks.filter(t => sameUserId(t.created_by, user.id));
     case 'translator':
       if (filter === 'pending') return tasks.filter(t => t.translation_status === 'pending');
-      if (filter === 'translated') return tasks.filter(t => t.translated_by === user.id);
+      if (filter === 'translated') return tasks.filter(t => sameUserId(t.translated_by, user.id));
       if (filter === 'all') return tasks;
       return tasks;
     case 'executor':
       if (filter === 'available') return tasks.filter(t => t.translation_status === 'approved' && t.status === 'pending');
-      if (filter === 'my_tasks') return tasks.filter(t => t.assigned_to === user.id);
-      if (filter === 'completed') return tasks.filter(t => t.assigned_to === user.id && t.status === 'completed');
+      if (filter === 'my_tasks') return tasks.filter(t => sameUserId(t.assigned_to, user.id));
+      if (filter === 'completed') {
+        return tasks.filter(t => sameUserId(t.assigned_to, user.id) && t.status === 'completed');
+      }
       if (filter === 'all') return tasks.filter(t => t.translation_status === 'approved');
       return tasks.filter(t => t.translation_status === 'approved');
     default:
@@ -84,7 +90,9 @@ router.get('/history', authenticateToken, async (req, res) => {
 });
 
 router.get('/my', authenticateToken, async (req, res) => {
-  const tasks = (await getAllTasks()).filter(t => t.created_by === req.user.id || t.assigned_to === req.user.id);
+  const tasks = (await getAllTasks()).filter(
+    t => sameUserId(t.created_by, req.user.id) || sameUserId(t.assigned_to, req.user.id)
+  );
   res.json({ tasks: filterTasksByRole(tasks, req.user) });
 });
 
@@ -98,31 +106,37 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    const { title, description } = req.body;
+    try {
+      const { title, description } = req.body;
 
-    if (!title) {
-      return res.status(400).json({ error: 'Укажите заголовок' });
-    }
-
-    let attachments = [];
-    if (req.files && req.files.length) {
-      for (const file of req.files) {
-        const blob = await put(`attachments/${Date.now()}-${file.originalname}`, file.buffer, {
-          access: 'public',
-          contentType: file.mimetype
-        });
-        attachments.push({
-          filename: blob.pathname,
-          originalName: file.originalname,
-          mimetype: file.mimetype,
-          size: file.size,
-          url: blob.url
-        });
+      if (!title) {
+        return res.status(400).json({ error: 'Укажите заголовок' });
       }
-    }
 
-    const task = await createTask(title, description, req.user.id, attachments);
-    res.status(201).json({ task });
+      let attachments = [];
+      if (req.files && req.files.length) {
+        for (const file of req.files) {
+          const blob = await put(`attachments/${Date.now()}-${file.originalname}`, file.buffer, {
+            access: 'public',
+            contentType: file.mimetype
+          });
+          attachments.push({
+            filename: blob.pathname,
+            originalName: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+            url: blob.url
+          });
+        }
+      }
+
+      const task = await createTask(title, description, req.user.id, attachments);
+      res.status(201).json({ task });
+    } catch (e) {
+      console.error('create task:', e);
+      const msg = e && e.message ? e.message : 'Не удалось сохранить публикацию';
+      res.status(500).json({ error: /blob|BLOB|token/i.test(msg) ? 'Ошибка загрузки файлов. Проверьте BLOB_READ_WRITE_TOKEN на сервере.' : msg });
+    }
   });
 });
 
@@ -183,7 +197,7 @@ router.post('/:id/complete', authenticateToken, async (req, res) => {
     return res.status(404).json({ error: 'Задача не найдена' });
   }
 
-  if (task.assigned_to !== req.user.id) {
+  if (!sameUserId(task.assigned_to, req.user.id)) {
     return res.status(403).json({ error: 'Только исполнитель может завершить задачу' });
   }
 

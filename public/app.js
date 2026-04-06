@@ -26,16 +26,30 @@ const STATUS_LABELS = {
 };
 
 async function api(endpoint, options = {}) {
-  const headers = {};
+  const { formData: isFormData, ...fetchInit } = options;
+  const headers = { ...fetchInit.headers };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (!options.formData) {
+  if (!isFormData) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API}${endpoint}`, { ...options, headers, body: options.body || undefined });
-  const data = await res.json();
+  const res = await fetch(`${API}${endpoint}`, {
+    ...fetchInit,
+    headers,
+    body: fetchInit.body
+  });
 
-  if (!res.ok) throw new Error(data.error || 'Ошибка');
+  const text = await res.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(text.slice(0, 120) || 'Ошибка сервера');
+    }
+  }
+
+  if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
   return data;
 }
 
@@ -247,7 +261,7 @@ function renderTasks(tasks) {
       if (task.translation_status === 'approved' && task.status === 'pending') {
         actions += `<button class="btn-take" onclick="takeTask(${task.id})">Взять в работу</button>`;
       }
-      if (task.status === 'in_progress' && task.assigned_to === currentUser.id) {
+      if (task.status === 'in_progress' && Number(task.assigned_to) === Number(currentUser.id)) {
         actions += `<button class="btn-complete" onclick="completeTask(${task.id})">Завершить</button>`;
       }
       if (task.attachments && task.attachments.length) {
@@ -616,15 +630,19 @@ $('#create-task-form').addEventListener('submit', async (e) => {
   formData.append('description', description);
   selectedFiles.forEach(f => formData.append('attachments', f));
 
-  await createTask(formData);
-  $('#task-title').value = '';
-  $('#task-description').value = '';
-  $('#task-attachments').value = '';
-  selectedFiles = [];
-  const container = $('#file-preview-container');
-  container.classList.add('hidden');
-  container.innerHTML = '';
-  $('#file-label-text').textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+  try {
+    await createTask(formData);
+    $('#task-title').value = '';
+    $('#task-description').value = '';
+    $('#task-attachments').value = '';
+    selectedFiles = [];
+    const container = $('#file-preview-container');
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    $('#file-label-text').textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+  } catch (err) {
+    alert(err.message || 'Не удалось отправить публикацию');
+  }
 });
 
 // Translation form

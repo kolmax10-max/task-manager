@@ -14,6 +14,7 @@ function authenticateToken(req, res, next) {
     if (err) {
       return res.status(403).json({ error: 'Неверный токен' });
     }
+    user.id = Number(user.id);
     req.user = user;
     next();
   });
