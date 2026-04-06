@@ -163,7 +163,32 @@ async function api(endpoint, options = {}) {
   return data;
 }
 
+function closeHeaderUsersDropdown() {
+  const dd = $('#header-users-dropdown');
+  const btn = $('#header-users-btn');
+  const wrap = $('#header-users-wrap');
+  if (dd) dd.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  if (wrap) wrap.classList.remove('header-users-wrap--open');
+}
+
+function toggleHeaderUsersDropdown() {
+  const dd = $('#header-users-dropdown');
+  if (!dd) return;
+  const opening = dd.classList.contains('hidden');
+  if (opening) {
+    dd.classList.remove('hidden');
+    $('#header-users-btn')?.setAttribute('aria-expanded', 'true');
+    $('#header-users-wrap')?.classList.add('header-users-wrap--open');
+    if (currentUser?.role === 'admin') loadAdminUsers();
+  } else {
+    closeHeaderUsersDropdown();
+  }
+}
+
 function showAuth() {
+  closeHeaderUsersDropdown();
+  $('#header-users-wrap')?.classList.add('hidden');
   $('#auth-screen').classList.remove('hidden');
   $('#main-screen').classList.add('hidden');
 }
@@ -173,6 +198,17 @@ function showMain() {
   $('#main-screen').classList.remove('hidden');
   $('#user-display').textContent = currentUser.username;
   $('#role-badge').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
+
+  const headerUsersWrap = $('#header-users-wrap');
+  if (headerUsersWrap) {
+    if (currentUser.role === 'admin') {
+      headerUsersWrap.classList.remove('hidden');
+    } else {
+      headerUsersWrap.classList.add('hidden');
+      closeHeaderUsersDropdown();
+    }
+  }
+
   showRolePanel();
   loadTasks();
 }
@@ -329,6 +365,7 @@ async function submitRegister(username, password, role) {
 }
 
 function logout() {
+  closeHeaderUsersDropdown();
   token = null;
   currentUser = null;
   localStorage.removeItem('token');
@@ -957,6 +994,24 @@ if (translationModal) {
     if (e.target === translationModal) closeTranslation();
   });
 }
+
+const headerUsersBtn = $('#header-users-btn');
+if (headerUsersBtn) {
+  headerUsersBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleHeaderUsersDropdown();
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const wrap = $('#header-users-wrap');
+  if (!wrap || wrap.classList.contains('hidden')) return;
+  if (!wrap.contains(e.target)) closeHeaderUsersDropdown();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeHeaderUsersDropdown();
+});
 
 // Filters
 $$('.filter-btn').forEach(btn => {

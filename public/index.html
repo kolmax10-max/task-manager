@@ -40,6 +40,17 @@
       <header>
         <h1>Менеджер задач</h1>
         <div class="header-right">
+          <div id="header-users-wrap" class="header-users-wrap hidden">
+            <button type="button" id="header-users-btn" class="header-users-btn" aria-expanded="false" aria-haspopup="true" aria-controls="header-users-dropdown">
+              Пользователи
+            </button>
+            <div id="header-users-dropdown" class="header-users-dropdown hidden" role="region" aria-label="Пользователи">
+              <div class="header-users-dropdown-inner">
+                <h3 class="header-users-title">Пользователи</h3>
+                <div id="admin-users-list" class="admin-users-list"></div>
+              </div>
+            </div>
+          </div>
           <span id="user-display"></span>
           <span id="role-badge" class="role-badge"></span>
           <button id="logout-btn">Выйти</button>
@@ -48,30 +59,20 @@
 
       <div class="container">
         <div id="admin-panel" class="role-panel hidden">
-          <div class="admin-panel-layout">
-            <div class="admin-panel-main">
-              <div class="panel-header">
-                <h2>Панель администратора</h2>
-              </div>
-              <div class="admin-pending-block">
-                <h3>Регистрации</h3>
-                <div id="pending-registrations-list" class="pending-registrations-list"></div>
-              </div>
-              <div class="stats" id="admin-stats"></div>
-              <div class="filters">
-                <button class="filter-btn active" data-filter="all">Все</button>
-                <button class="filter-btn" data-filter="pending">Ожидают</button>
-                <button class="filter-btn" data-filter="approved">Переведены</button>
-                <button class="filter-btn" data-filter="in_progress">В работе</button>
-                <button class="filter-btn" data-filter="completed">Завершённые</button>
-              </div>
-            </div>
-            <aside class="admin-panel-sidebar" aria-label="Пользователи">
-              <div class="admin-users-block">
-                <h3>Пользователи</h3>
-                <div id="admin-users-list" class="admin-users-list"></div>
-              </div>
-            </aside>
+          <div class="panel-header">
+            <h2>Панель администратора</h2>
+          </div>
+          <div class="admin-pending-block">
+            <h3>Регистрации</h3>
+            <div id="pending-registrations-list" class="pending-registrations-list"></div>
+          </div>
+          <div class="stats" id="admin-stats"></div>
+          <div class="filters">
+            <button class="filter-btn active" data-filter="all">Все</button>
+            <button class="filter-btn" data-filter="pending">Ожидают</button>
+            <button class="filter-btn" data-filter="approved">Переведены</button>
+            <button class="filter-btn" data-filter="in_progress">В работе</button>
+            <button class="filter-btn" data-filter="completed">Завершённые</button>
           </div>
         </div>
 
