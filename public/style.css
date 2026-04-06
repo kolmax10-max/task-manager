@@ -435,6 +435,17 @@ header h1 {
   max-width: 80px;
 }
 
+.file-preview-item .file-preview-size {
+  font-size: 0.65rem;
+  color: #888;
+  margin-top: 0.1rem;
+}
+
+.file-label.file-label--over-limit #file-label-text {
+  color: #c0392b;
+  font-weight: 600;
+}
+
 .file-preview-item .file-remove {
   position: absolute;
   top: -4px;

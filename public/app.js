@@ -13,6 +13,37 @@ const $$ = (sel) => document.querySelectorAll(sel);
 /** Суммарный размер вложений: Vercel обрезает всё тело запроса ~4.5 МБ */
 const MAX_ATTACHMENTS_TOTAL_BYTES = 4 * 1024 * 1024;
 
+function formatBytesReadable(bytes) {
+  if (bytes == null || bytes < 0) return '0 Б';
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} КБ`;
+  }
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toLocaleString('ru-RU', { maximumFractionDigits: 2, minimumFractionDigits: 1 })} МБ`;
+}
+
+function updateAttachmentSummaryLabel() {
+  const label = $('#file-label-text');
+  if (!label) return;
+  const labelWrap = label.closest('.file-label');
+
+  if (!selectedFiles.length) {
+    label.textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+    labelWrap?.classList.remove('file-label--over-limit');
+    return;
+  }
+
+  const total = selectedFiles.reduce((s, f) => s + f.size, 0);
+  label.textContent = `Файлы выбраны: ${selectedFiles.length} шт. · всего ${formatBytesReadable(total)}`;
+
+  if (total > MAX_ATTACHMENTS_TOTAL_BYTES) {
+    labelWrap?.classList.add('file-label--over-limit');
+  } else {
+    labelWrap?.classList.remove('file-label--over-limit');
+  }
+}
+
 let toastAutoRemoveTimer;
 function showToast(message, variant = 'error') {
   const root = $('#toast-container');
@@ -604,7 +635,7 @@ $('#task-attachments').addEventListener('change', (e) => {
 
   if (selectedFiles.length) {
     container.classList.remove('hidden');
-    $('#file-label-text').textContent = `Файлы выбраны: ${selectedFiles.length} шт.`;
+    updateAttachmentSummaryLabel();
 
     selectedFiles.forEach((file) => {
       const wrapper = document.createElement('div');
@@ -630,6 +661,11 @@ $('#task-attachments').addEventListener('change', (e) => {
       name.textContent = file.name;
       wrapper.appendChild(name);
 
+      const sizeHint = document.createElement('span');
+      sizeHint.className = 'file-preview-size';
+      sizeHint.textContent = formatBytesReadable(file.size);
+      wrapper.appendChild(sizeHint);
+
       const removeBtn = document.createElement('button');
       removeBtn.className = 'file-remove';
       removeBtn.textContent = '×';
@@ -644,9 +680,9 @@ $('#task-attachments').addEventListener('change', (e) => {
         if (selectedFiles.length === 0) {
           container.classList.add('hidden');
           container.innerHTML = '';
-          $('#file-label-text').textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+          updateAttachmentSummaryLabel();
         } else {
-          $('#file-label-text').textContent = `Файлы выбраны: ${selectedFiles.length} шт.`;
+          updateAttachmentSummaryLabel();
         }
       });
       wrapper.appendChild(removeBtn);
@@ -656,7 +692,7 @@ $('#task-attachments').addEventListener('change', (e) => {
   } else {
     container.classList.add('hidden');
     container.innerHTML = '';
-    $('#file-label-text').textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+    updateAttachmentSummaryLabel();
   }
 });
 
@@ -690,7 +726,7 @@ $('#create-task-form').addEventListener('submit', async (e) => {
     const container = $('#file-preview-container');
     container.classList.add('hidden');
     container.innerHTML = '';
-    $('#file-label-text').textContent = 'Прикрепить файлы (фото, PDF, DOCX, ZIP)';
+    updateAttachmentSummaryLabel();
     showToast('Публикация отправлена', 'success');
   } catch (err) {
     showToast(err.message || 'Не удалось отправить публикацию');
