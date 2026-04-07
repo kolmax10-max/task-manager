@@ -337,7 +337,7 @@ header h1 {
 }
 
 .task-card:hover {
-  transform: translateY(-2px);
+  transform: none;
 }
 
 .task-header {
@@ -578,7 +578,7 @@ header h1 {
 }
 
 .attachment-item img:hover {
-  transform: scale(1.03);
+  transform: none;
 }
 
 .attachment-item.file-attachment {
