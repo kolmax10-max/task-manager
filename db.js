@@ -248,7 +248,11 @@ async function getTaskById(id) {
 
 async function getAttachmentsForTask(taskId) {
   const { rows } = await getPool().query('SELECT * FROM attachments WHERE task_id = $1', [taskId]);
-  return rows;
+  return rows.map((att) => ({
+    ...att,
+    taskId: att.task_id,
+    originalName: att.original_name
+  }));
 }
 
 async function createTask(title, description, created_by, attachments = []) {

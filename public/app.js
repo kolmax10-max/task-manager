@@ -497,12 +497,13 @@ function renderTasks(tasks) {
     if (task.attachments && task.attachments.length) {
       attachmentsHtml = '<div class="attachments-list">' + task.attachments.map((att, idx) => {
         const proxyUrl = escapeHtml(attachmentProxyUrl(task.id, idx));
+        const displayName = att.originalName || att.original_name || att.filename || 'file';
         const isImage = att.mimetype && att.mimetype.startsWith('image/');
         if (isImage) {
-          return `<div class="attachment-item"><img class="task-attachment-thumb" src="${proxyUrl}" alt="${escapeHtml(att.originalName)}" data-photo-url="${proxyUrl}"></div>`;
+          return `<div class="attachment-item"><img class="task-attachment-thumb" src="${proxyUrl}" alt="${escapeHtml(displayName)}" data-photo-url="${proxyUrl}"></div>`;
         } else {
-          const ext = att.originalName.split('.').pop().toUpperCase();
-          return `<div class="attachment-item file-attachment"><a href="${proxyUrl}" target="_blank"><div class="file-icon">${ext}</div><span class="file-name">${escapeHtml(att.originalName)}</span></a></div>`;
+          const ext = displayName.split('.').pop().toUpperCase();
+          return `<div class="attachment-item file-attachment"><a href="${proxyUrl}" target="_blank"><div class="file-icon">${ext}</div><span class="file-name">${escapeHtml(displayName)}</span></a></div>`;
         }
       }).join('') + '</div>';
     }
@@ -794,7 +795,8 @@ function openTranslation(id) {
         infoHtml += '<div class="modal-attachments"><strong>Вложения:</strong><ul>';
         taskData.attachments.forEach((att, idx) => {
           const href = escapeHtml(attachmentProxyUrl(taskData.id, idx));
-          infoHtml += `<li><a href="${href}" target="_blank">${escapeHtml(att.originalName)}</a></li>`;
+          const displayName = att.originalName || att.original_name || att.filename || 'file';
+          infoHtml += `<li><a href="${href}" target="_blank">${escapeHtml(displayName)}</a></li>`;
         });
         infoHtml += '</ul></div>';
       }
