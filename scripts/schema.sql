@@ -1,5 +1,5 @@
--- Выполните в Neon: SQL Editor → ветка production → database neondb.
--- Либо проще: из корня проекта `npm run db:init` (создаст таблицы и пользователя superuser через приложение).
+-- Опционально: выполнить вручную в PostgreSQL.
+-- Проще из корня проекта: npm run db:init (создаст таблицы и superuser через приложение).
 
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,

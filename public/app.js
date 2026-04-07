@@ -10,39 +10,8 @@ let currentTranslationTaskId = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-/** Прямая загрузка в Vercel Blob из браузера (лимит токена на сервере) */
-const MAX_BLOB_FILE_BYTES = 50 * 1024 * 1024;
-
-/** Запасной путь: multipart целиком в функцию (~4 МБ суммарно на запрос) */
-const MAX_LEGACY_FORM_TOTAL_BYTES = 4 * 1024 * 1024;
-
-/** Сначала свой домен (обход блокировок CDN); иначе внешний esm */
-async function loadBlobClientModule() {
-  const urls = [
-    `${window.location.origin}/vendor/vercel-blob-client.js`,
-    'https://esm.sh/@vercel/blob@2.3.3/client'
-  ];
-  let lastErr;
-  for (const url of urls) {
-    try {
-      return await import(url);
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr;
-}
-
-function describeBlobUploadError(err) {
-  const m = err && err.message ? String(err.message) : '';
-  if (/Failed to retrieve|client token|BlobError/i.test(m)) {
-    return 'Не удалось начать загрузку: проверьте вход, BLOB_READ_WRITE_TOKEN и redeploy.';
-  }
-  if (/fetch|Failed to fetch|dynamically imported|imported module|Loading module|NetworkError/i.test(m)) {
-    return 'Нет связи с модулем загрузки. Обновите страницу или попробуйте позже.';
-  }
-  return m || 'Ошибка загрузки файла';
-}
+/** Лимит размера одного файла (должен совпадать с MAX_UPLOAD_MB на сервере, по умолчанию 50 МБ) */
+const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
 
 function formatBytesReadable(bytes) {
   if (bytes == null || bytes < 0) return '0 Б';
@@ -60,7 +29,7 @@ function updateAttachmentSummaryLabel() {
   const labelWrap = label.closest('.file-label');
 
   if (!selectedFiles.length) {
-    label.textContent = 'Прикрепить файлы (на Vercel до ~50 МБ на файл)';
+    label.textContent = 'Прикрепить файлы (до ~50 МБ на файл)';
     labelWrap?.classList.remove('file-label--over-limit');
     return;
   }
@@ -68,7 +37,7 @@ function updateAttachmentSummaryLabel() {
   const total = selectedFiles.reduce((s, f) => s + f.size, 0);
   label.textContent = `Файлы выбраны: ${selectedFiles.length} шт. · всего ${formatBytesReadable(total)}`;
 
-  const overLimit = selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES);
+  const overLimit = selectedFiles.some((f) => f.size > MAX_UPLOAD_FILE_BYTES);
   if (overLimit) {
     labelWrap?.classList.add('file-label--over-limit');
   } else {
@@ -105,6 +74,30 @@ function showToast(message, variant = 'error') {
   clearTimeout(toastAutoRemoveTimer);
   toastAutoRemoveTimer = setTimeout(() => el.remove(), 8000);
 }
+
+/** Тост без авто-снятия — убрать вручную или в finally (индикатор отправки). */
+function showStickyToast(message, variant = 'info') {
+  const root = $('#toast-container');
+  if (!root || !message) return null;
+  const el = document.createElement('div');
+  el.className = `toast toast--${variant} toast--sticky`;
+  const msg = document.createElement('p');
+  msg.className = 'toast-text';
+  msg.textContent = message;
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'toast-close';
+  close.setAttribute('aria-label', 'Закрыть');
+  close.textContent = '×';
+  close.addEventListener('click', () => el.remove());
+  el.appendChild(msg);
+  el.appendChild(close);
+  root.appendChild(el);
+  return el;
+}
+
+/** Таймаут только для тяжёлых запросов (multipart с файлами). */
+const MULTIPART_UPLOAD_DEADLINE_MS = 120000;
 
 let confirmResolver = null;
 
@@ -164,18 +157,27 @@ const STATUS_LABELS = {
 };
 
 async function api(endpoint, options = {}) {
-  const { formData: isFormData, ...fetchInit } = options;
+  const { formData: isFormData, signal, ...fetchInit } = options;
   const headers = { ...fetchInit.headers };
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (!isFormData) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API}${endpoint}`, {
-    ...fetchInit,
-    headers,
-    body: fetchInit.body
-  });
+  let res;
+  try {
+    res = await fetch(`${API}${endpoint}`, {
+      ...fetchInit,
+      headers,
+      body: fetchInit.body,
+      signal
+    });
+  } catch (e) {
+    if (e.name === 'AbortError' || e.message === 'The operation was aborted.' || e.message === 'The user aborted a request.') {
+      throw new Error('Сервер не ответил вовремя. Проверьте сеть или размер вложений и попробуйте снова.');
+    }
+    throw e;
+  }
 
   const text = await res.text();
   let data = {};
@@ -191,7 +193,7 @@ async function api(endpoint, options = {}) {
     const combined = [data.error, text].filter(Boolean).join(' ');
     if (res.status === 413 || /FUNCTION_PAYLOAD_TOO_LARGE|Request Entity Too Large|PAYLOAD_TOO_LARGE/i.test(combined)) {
       throw new Error(
-        'Файлы слишком большие: у сервера лимит ~4 МБ на отправку. Уменьшите вложения или отправьте без файлов.'
+        'Файлы слишком большие для сервера (проверьте MAX_UPLOAD_MB и client_max_body_size в Nginx). Уменьшите вложения.'
       );
     }
     const fallback = text && !data.error ? text.replace(/<[^>]+>/g, '').trim().slice(0, 200) : '';
@@ -493,13 +495,14 @@ function renderTasks(tasks) {
 
     let attachmentsHtml = '';
     if (task.attachments && task.attachments.length) {
-      attachmentsHtml = '<div class="attachments-list">' + task.attachments.map(att => {
+      attachmentsHtml = '<div class="attachments-list">' + task.attachments.map((att, idx) => {
+        const proxyUrl = escapeHtml(attachmentProxyUrl(task.id, idx));
         const isImage = att.mimetype && att.mimetype.startsWith('image/');
         if (isImage) {
-          return `<div class="attachment-item"><img class="task-attachment-thumb" src="${escapeHtml(att.url)}" alt="${escapeHtml(att.originalName)}" data-photo-url="${escapeHtml(att.url)}"></div>`;
+          return `<div class="attachment-item"><img class="task-attachment-thumb" src="${proxyUrl}" alt="${escapeHtml(att.originalName)}" data-photo-url="${proxyUrl}"></div>`;
         } else {
           const ext = att.originalName.split('.').pop().toUpperCase();
-          return `<div class="attachment-item file-attachment"><a href="${att.url}" target="_blank"><div class="file-icon">${ext}</div><span class="file-name">${escapeHtml(att.originalName)}</span></a></div>`;
+          return `<div class="attachment-item file-attachment"><a href="${proxyUrl}" target="_blank"><div class="file-icon">${ext}</div><span class="file-name">${escapeHtml(att.originalName)}</span></a></div>`;
         }
       }).join('') + '</div>';
     }
@@ -541,6 +544,13 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/** Вложения отдаются через API с проверкой прав (не прямой URL к файлу на диске). */
+function attachmentProxyUrl(taskId, index) {
+  const base = `${API}/tasks/${taskId}/attachments/${index}`;
+  if (token) return `${base}?access_token=${encodeURIComponent(token)}`;
+  return base;
 }
 
 async function loadPendingRegistrations() {
@@ -677,48 +687,28 @@ async function deleteAdminUser(userId, username) {
   }
 }
 
-/** Один PUT до лимита токена (50 МБ). Multipart включаем только для очень больших файлов — иначе на части окружений MPU даёт сбои без явной ошибки. */
-const MULTIPART_UPLOAD_THRESHOLD_BYTES = 80 * 1024 * 1024;
-
-async function uploadFilesViaBlobClient(files) {
-  const { upload } = await loadBlobClientModule();
-  const handleUploadUrl = `${window.location.origin}${API}/blob/client-upload`;
-  const attachmentsMeta = [];
-  for (const file of files) {
-    const pathname = (file.name || 'file').replace(/^.*[/\\]/, '').slice(0, 200) || 'file';
-    const result = await upload(pathname, file, {
-      access: 'public',
-      handleUploadUrl,
-      multipart: file.size > MULTIPART_UPLOAD_THRESHOLD_BYTES,
-      ...(file.type ? { contentType: file.type } : {}),
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    attachmentsMeta.push({
-      filename: result.pathname,
-      originalName: file.name,
-      mimetype: file.type || 'application/octet-stream',
-      size: file.size,
-      url: result.url
-    });
-  }
-  return attachmentsMeta;
-}
-
-async function createTaskJson(title, description, attachmentsMeta) {
+async function createTaskJson(title, description) {
   await api('/tasks', {
     method: 'POST',
-    body: JSON.stringify({ title, description, attachments: attachmentsMeta })
+    body: JSON.stringify({ title, description, attachments: [] })
   });
   loadTasks();
   if (currentUser?.role === 'admin') loadAdminStats();
 }
 
 async function createTaskMultipart(formData) {
-  await api('/tasks', {
-    method: 'POST',
-    body: formData,
-    formData: true
-  });
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), MULTIPART_UPLOAD_DEADLINE_MS);
+  try {
+    await api('/tasks', {
+      method: 'POST',
+      body: formData,
+      formData: true,
+      signal: ctrl.signal
+    });
+  } finally {
+    clearTimeout(tid);
+  }
   loadTasks();
   if (currentUser?.role === 'admin') loadAdminStats();
 }
@@ -802,8 +792,9 @@ function openTranslation(id) {
       if (taskData.description) infoHtml += `<p>${escapeHtml(taskData.description)}</p>`;
       if (taskData.attachments && taskData.attachments.length) {
         infoHtml += '<div class="modal-attachments"><strong>Вложения:</strong><ul>';
-        taskData.attachments.forEach((att) => {
-          infoHtml += `<li><a href="${att.url}" target="_blank">${escapeHtml(att.originalName)}</a></li>`;
+        taskData.attachments.forEach((att, idx) => {
+          const href = escapeHtml(attachmentProxyUrl(taskData.id, idx));
+          infoHtml += `<li><a href="${href}" target="_blank">${escapeHtml(att.originalName)}</a></li>`;
         });
         infoHtml += '</ul></div>';
       }
@@ -844,7 +835,7 @@ $$('.tab').forEach(tab => {
       if (!turnstileSiteKey) {
         $('#auth-error').classList.remove('hidden');
         $('#auth-error').textContent =
-          'Проверка «Я не робот» не настроена: на сервере нет TURNSTILE_SITE_KEY или нужен Redeploy. Для Preview добавьте ключи и для окружения Preview.';
+          'Проверка «Я не робот» не настроена: задайте TURNSTILE_SITE_KEY и TURNSTILE_SECRET_KEY на сервере (файл .env).';
         return;
       }
       try {
@@ -998,49 +989,29 @@ if (taskAttachmentsInput) {
       return;
     }
 
-    if (selectedFiles.some((f) => f.size > MAX_BLOB_FILE_BYTES)) {
-      showToast(`Один файл не больше ${formatBytesReadable(MAX_BLOB_FILE_BYTES)}`, 'error');
+    if (selectedFiles.some((f) => f.size > MAX_UPLOAD_FILE_BYTES)) {
+      showToast(`Один файл не больше ${formatBytesReadable(MAX_UPLOAD_FILE_BYTES)}`, 'error');
       return;
     }
 
     if (submitBtn) submitBtn.disabled = true;
 
+    let progressToast = null;
     try {
+      if (selectedFiles.length > 0) {
+        progressToast = showStickyToast('Отправка публикации…', 'info');
+      }
+
       if (selectedFiles.length === 0) {
-        await createTaskJson(title, description, []);
+        await createTaskJson(title, description);
       } else {
-        const totalBytes = selectedFiles.reduce((s, f) => s + f.size, 0);
-        // До лимита тела запроса на Vercel (~4 МБ): сразу multipart — сервер сам кладёт в Blob, без клиентского токена (не зависает).
-        if (totalBytes <= MAX_LEGACY_FORM_TOTAL_BYTES) {
-          const formData = new FormData();
-          formData.append('title', title);
-          formData.append('description', description);
-          selectedFiles.forEach((f) => formData.append('attachments', f));
-          await createTaskMultipart(formData);
-        } else {
-          const BLOB_DEADLINE_MS = 120000;
-          showToast('Загрузка больших файлов…', 'info');
-          try {
-            const attachmentsMeta = await Promise.race([
-              uploadFilesViaBlobClient(selectedFiles),
-              new Promise((_, rej) => {
-                setTimeout(
-                  () =>
-                    rej(
-                      new Error(
-                        'Превышено время ожидания загрузки. Проверьте сеть или отправьте файлы по одному до 4 МБ.'
-                      )
-                    ),
-                  BLOB_DEADLINE_MS
-                );
-              })
-            ]);
-            await createTaskJson(title, description, attachmentsMeta);
-          } catch (blobErr) {
-            showToast(describeBlobUploadError(blobErr) || blobErr.message || 'Ошибка загрузки файлов', 'error');
-            return;
-          }
-        }
+        const pt = progressToast?.querySelector('.toast-text');
+        if (pt) pt.textContent = 'Загрузка файлов на сервер…';
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('description', description);
+        selectedFiles.forEach((f) => formData.append('attachments', f));
+        await createTaskMultipart(formData);
       }
 
       titleInput.value = '';
@@ -1058,6 +1029,7 @@ if (taskAttachmentsInput) {
     } catch (err) {
       showToast(err.message || 'Не удалось отправить публикацию');
     } finally {
+      progressToast?.remove();
       if (submitBtn) submitBtn.disabled = false;
     }
   });

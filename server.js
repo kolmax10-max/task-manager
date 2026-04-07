@@ -2,11 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { initDB } = require('./db');
+const fileStorage = require('./lib/file-storage');
 
 const authRoutes = require('./routes/auth');
 const taskRoutes = require('./routes/tasks');
 const adminRoutes = require('./routes/admin');
-const blobRoutes = require('./routes/blob');
 
 const app = express();
 
@@ -16,7 +16,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/blob', blobRoutes);
 app.use('/api/tasks', taskRoutes);
 
 app.get('*', (req, res) => {
@@ -26,16 +25,21 @@ app.get('*', (req, res) => {
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   const PORT = process.env.PORT || 3000;
 
-  initDB().then(() => {
-    app.listen(PORT, () => {
-      console.log(`Сервер запущен: http://localhost:${PORT}`);
+  initDB()
+    .then(() => fileStorage.ensureUploadDir())
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`Сервер запущен: http://localhost:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('DB init error:', err);
+      fileStorage.ensureUploadDir().finally(() => {
+        app.listen(PORT, () => {
+          console.log(`Сервер запущен (без БД): http://localhost:${PORT}`);
+        });
+      });
     });
-  }).catch(err => {
-    console.error('DB init error:', err);
-    app.listen(PORT, () => {
-      console.log(`Сервер запущен (без БД): http://localhost:${PORT}`);
-    });
-  });
 }
 
 initDB().catch(() => {});

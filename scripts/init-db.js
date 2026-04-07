@@ -3,8 +3,8 @@ const { initDB } = require('../db');
 async function main() {
   if (!process.env.DATABASE_URL) {
     console.error(
-      'DATABASE_URL не задан. Укажите строку подключения Neon в файле .env в корне проекта\n' +
-        'или в переменных окружения (скопируйте из Neon → Connection string, ветка production).'
+      'DATABASE_URL не задан. Укажите строку подключения PostgreSQL в .env в корне проекта\n' +
+        '(например postgres://user:pass@127.0.0.1:5432/dbname).'
     );
     process.exit(1);
   }

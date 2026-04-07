@@ -4,7 +4,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  let token = authHeader && authHeader.split(' ')[1];
+  if (!token && req.method === 'GET' && typeof req.query.access_token === 'string' && req.query.access_token.length > 0) {
+    token = req.query.access_token;
+  }
 
   if (!token) {
     return res.status(401).json({ error: 'Требуется авторизация' });

@@ -2,19 +2,23 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const archiver = require('archiver');
-const { put, del } = require('@vercel/blob');
 const { getAllTasks, getTaskById, createTask, updateTask, deleteTask } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const fileStorage = require('../lib/file-storage');
 
-/** Лимит тела запроса у serverless (Vercel) ~4.5 МБ на весь multipart */
-const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const maxMb = Math.min(500, Math.max(1, parseInt(process.env.MAX_UPLOAD_MB || '50', 10) || 50));
+const MAX_FILE_BYTES = maxMb * 1024 * 1024;
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_BYTES },
+  limits: { fileSize: MAX_FILE_BYTES, files: 25 },
   fileFilter: (req, file, cb) => {
     const allowed = [
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/bmp',
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/zip',
@@ -39,13 +43,28 @@ function sameUserId(a, b) {
   return Number(a) === Number(b);
 }
 
-function isAllowedBlobPublicUrl(url) {
-  try {
-    const u = new URL(url);
-    return u.protocol === 'https:' && u.hostname.toLowerCase().endsWith('.public.blob.vercel-storage.com');
-  } catch {
-    return false;
+function isAllowedAttachmentUrl(url) {
+  return fileStorage.isLocalRef(url);
+}
+
+function userCanAccessTaskAttachments(user, task) {
+  if (!task) return false;
+  switch (user.role) {
+    case 'admin':
+      return true;
+    case 'author':
+      return sameUserId(task.created_by, user.id);
+    case 'translator':
+      return true;
+    case 'executor':
+      return task.translation_status === 'approved';
+    default:
+      return false;
   }
+}
+
+async function bufferFromStoredUrl(attUrl) {
+  return fileStorage.readStoredFileBuffer(attUrl);
 }
 
 function filterTasksByRole(tasks, user) {
@@ -53,7 +72,7 @@ function filterTasksByRole(tasks, user) {
     case 'admin':
       return tasks;
     case 'author':
-      return tasks.filter(t => sameUserId(t.created_by, user.id));
+      return tasks.filter((t) => sameUserId(t.created_by, user.id));
     case 'translator':
       return tasks;
     case 'executor':
@@ -66,26 +85,26 @@ function filterTasksByRole(tasks, user) {
 function getVisibleTasks(tasks, user, filter) {
   switch (user.role) {
     case 'admin':
-      if (filter === 'pending') return tasks.filter(t => t.translation_status === 'pending');
-      if (filter === 'approved') return tasks.filter(t => t.translation_status === 'approved' && t.status === 'pending');
-      if (filter === 'in_progress') return tasks.filter(t => t.status === 'in_progress');
-      if (filter === 'completed') return tasks.filter(t => t.status === 'completed');
+      if (filter === 'pending') return tasks.filter((t) => t.translation_status === 'pending');
+      if (filter === 'approved') return tasks.filter((t) => t.translation_status === 'approved' && t.status === 'pending');
+      if (filter === 'in_progress') return tasks.filter((t) => t.status === 'in_progress');
+      if (filter === 'completed') return tasks.filter((t) => t.status === 'completed');
       return tasks;
     case 'author':
-      return tasks.filter(t => sameUserId(t.created_by, user.id));
+      return tasks.filter((t) => sameUserId(t.created_by, user.id));
     case 'translator':
-      if (filter === 'pending') return tasks.filter(t => t.translation_status === 'pending');
-      if (filter === 'translated') return tasks.filter(t => sameUserId(t.translated_by, user.id));
+      if (filter === 'pending') return tasks.filter((t) => t.translation_status === 'pending');
+      if (filter === 'translated') return tasks.filter((t) => sameUserId(t.translated_by, user.id));
       if (filter === 'all') return tasks;
       return tasks;
     case 'executor':
-      if (filter === 'available') return tasks.filter(t => t.translation_status === 'approved' && t.status === 'pending');
-      if (filter === 'my_tasks') return tasks.filter(t => sameUserId(t.assigned_to, user.id));
+      if (filter === 'available') return tasks.filter((t) => t.translation_status === 'approved' && t.status === 'pending');
+      if (filter === 'my_tasks') return tasks.filter((t) => sameUserId(t.assigned_to, user.id));
       if (filter === 'completed') {
-        return tasks.filter(t => sameUserId(t.assigned_to, user.id) && t.status === 'completed');
+        return tasks.filter((t) => sameUserId(t.assigned_to, user.id) && t.status === 'completed');
       }
-      if (filter === 'all') return tasks.filter(t => t.translation_status === 'approved');
-      return tasks.filter(t => t.translation_status === 'approved');
+      if (filter === 'all') return tasks.filter((t) => t.translation_status === 'approved');
+      return tasks.filter((t) => t.translation_status === 'approved');
     default:
       return [];
   }
@@ -103,7 +122,7 @@ router.get('/history', authenticateToken, async (req, res) => {
 
 router.get('/my', authenticateToken, async (req, res) => {
   const tasks = (await getAllTasks()).filter(
-    t => sameUserId(t.created_by, req.user.id) || sameUserId(t.assigned_to, req.user.id)
+    (t) => sameUserId(t.created_by, req.user.id) || sameUserId(t.assigned_to, req.user.id)
   );
   res.json({ tasks: filterTasksByRole(tasks, req.user) });
 });
@@ -113,31 +132,21 @@ router.post('/', authenticateToken, async (req, res) => {
     return res.status(403).json({ error: 'Только авторы могут создавать задачи' });
   }
 
-  if (Array.isArray(req.body?.attachments) && typeof req.body?.title === 'string') {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('application/json')) {
     try {
-      const title = req.body.title.trim();
-      const description = typeof req.body.description === 'string' ? req.body.description : '';
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      const description = typeof req.body?.description === 'string' ? req.body.description : '';
       if (!title) {
         return res.status(400).json({ error: 'Укажите заголовок' });
       }
-      const attachments = [];
-      for (const att of req.body.attachments) {
-        if (!att || typeof att.url !== 'string' || !isAllowedBlobPublicUrl(att.url)) {
-          return res.status(400).json({ error: 'Некорректная ссылка на файл' });
-        }
-        const size = Number(att.size);
-        if (size > 55 * 1024 * 1024) {
-          return res.status(400).json({ error: 'Слишком большой файл' });
-        }
-        attachments.push({
-          filename: String(att.filename || att.pathname || '').slice(0, 500),
-          originalName: String(att.originalName || 'file').slice(0, 255),
-          mimetype: String(att.mimetype || 'application/octet-stream').slice(0, 100),
-          size: Number.isFinite(size) && size >= 0 ? Math.floor(size) : 0,
-          url: att.url
+      const rawAtt = req.body?.attachments;
+      if (Array.isArray(rawAtt) && rawAtt.length > 0) {
+        return res.status(400).json({
+          error: 'Файлы нужно отправлять формой с вложениями (multipart), не JSON.'
         });
       }
-      const task = await createTask(title, description, req.user.id, attachments);
+      const task = await createTask(title, description, req.user.id, []);
       return res.status(201).json({ task });
     } catch (e) {
       console.error('create task json:', e);
@@ -145,31 +154,30 @@ router.post('/', authenticateToken, async (req, res) => {
     }
   }
 
-  upload.array('attachments', 10)(req, res, async (err) => {
+  upload.array('attachments', 25)(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ error: err.message });
     }
 
     try {
-      const { title, description } = req.body;
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      const description = typeof req.body?.description === 'string' ? req.body.description : '';
 
       if (!title) {
         return res.status(400).json({ error: 'Укажите заголовок' });
       }
 
-      let attachments = [];
+      const attachments = [];
       if (req.files && req.files.length) {
+        await fileStorage.ensureUploadDir();
         for (const file of req.files) {
-          const blob = await put(`attachments/${Date.now()}-${file.originalname}`, file.buffer, {
-            access: 'public',
-            contentType: file.mimetype
-          });
+          const saved = await fileStorage.saveUploadedFile(file.originalname, file.buffer, file.mimetype);
           attachments.push({
-            filename: blob.pathname,
-            originalName: file.originalname,
-            mimetype: file.mimetype,
-            size: file.size,
-            url: blob.url
+            filename: saved.filename,
+            originalName: saved.originalName,
+            mimetype: saved.mimetype,
+            size: saved.size,
+            url: saved.url
           });
         }
       }
@@ -178,8 +186,7 @@ router.post('/', authenticateToken, async (req, res) => {
       res.status(201).json({ task });
     } catch (e) {
       console.error('create task:', e);
-      const msg = e && e.message ? e.message : 'Не удалось сохранить публикацию';
-      res.status(500).json({ error: /blob|BLOB|token/i.test(msg) ? 'Ошибка загрузки файлов. Проверьте BLOB_READ_WRITE_TOKEN на сервере.' : msg });
+      res.status(500).json({ error: e && e.message ? e.message : 'Не удалось сохранить публикацию' });
     }
   });
 });
@@ -262,15 +269,50 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   if (task.attachments) {
     for (const att of task.attachments) {
       try {
-        await del(att.url);
+        await fileStorage.deleteStoredFile(att.url);
       } catch (e) {
-        console.error('Failed to delete blob:', att.url, e);
+        console.error('Failed to delete file:', att.url, e);
       }
     }
   }
 
   await deleteTask(parseInt(req.params.id));
   res.json({ message: 'Задача удалена' });
+});
+
+router.get('/:id/attachments/:index', authenticateToken, async (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  const index = parseInt(req.params.index, 10);
+  if (!Number.isFinite(taskId) || !Number.isFinite(index) || index < 0) {
+    return res.status(400).json({ error: 'Некорректный запрос' });
+  }
+
+  const task = await getTaskById(taskId);
+  if (!task) {
+    return res.status(404).json({ error: 'Задача не найдена' });
+  }
+  if (!userCanAccessTaskAttachments(req.user, task)) {
+    return res.status(403).json({ error: 'Нет доступа' });
+  }
+
+  const att = task.attachments && task.attachments[index];
+  if (!att || typeof att.url !== 'string') {
+    return res.status(404).json({ error: 'Вложение не найдено' });
+  }
+  if (!isAllowedAttachmentUrl(att.url)) {
+    return res.status(404).json({ error: 'Файл недоступен (устаревший формат ссылки). Нужна миграция вложений.' });
+  }
+
+  try {
+    const buffer = await bufferFromStoredUrl(att.url);
+    const ct = att.mimetype || 'application/octet-stream';
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(att.originalName || 'file')}`);
+    res.send(buffer);
+  } catch (e) {
+    console.error('attachment:', e);
+    res.status(500).json({ error: 'Ошибка загрузки файла' });
+  }
 });
 
 router.get('/:id/download-zip', authenticateToken, async (req, res) => {
@@ -289,8 +331,8 @@ router.get('/:id/download-zip', authenticateToken, async (req, res) => {
 
   const archive = archiver('zip', { zlib: { level: 9 } });
 
-  archive.on('error', (err) => {
-    res.status(500).json({ error: 'Ошибка создания архива' });
+  archive.on('error', () => {
+    if (!res.headersSent) res.status(500).json({ error: 'Ошибка создания архива' });
   });
 
   res.attachment(`task-${task.id}-files.zip`);
@@ -298,11 +340,11 @@ router.get('/:id/download-zip', authenticateToken, async (req, res) => {
 
   for (const att of task.attachments) {
     try {
-      const response = await fetch(att.url);
-      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!fileStorage.isLocalRef(att.url)) continue;
+      const buffer = await bufferFromStoredUrl(att.url);
       archive.append(buffer, { name: att.originalName });
     } catch (e) {
-      console.error('Failed to fetch blob for ZIP:', att.url, e);
+      console.error('Failed to read file for ZIP:', att.url, e);
     }
   }
 
