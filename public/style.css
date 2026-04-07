@@ -1142,14 +1142,184 @@ header h1 {
   color: #1a3a6e;
 }
 
-@media (max-width: 600px) {
-  .translation-fields,
-  .translation-grid {
-    grid-template-columns: 1fr;
+@media (min-width: 601px) and (max-width: 900px) {
+  header {
+    padding: 0.9rem 1.2rem;
+    align-items: flex-start;
+    gap: 0.7rem;
+  }
+
+  header h1 {
+    font-size: 1.35rem;
+  }
+
+  .header-right {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.6rem;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 1.25rem auto;
+    padding: 0 0.9rem;
   }
 
   .stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .stat-item {
+    min-width: 0;
+    padding: 0.95rem 0.75rem;
+  }
+
+  .create-task,
+  .task-card {
+    padding: 1.25rem;
+  }
+
+  .filters {
+    gap: 0.45rem;
+    margin-bottom: 1.2rem;
+  }
+
+  .filter-btn {
+    padding: 0.45rem 0.85rem;
+    font-size: 0.88rem;
+  }
+
+  .task-header {
+    gap: 0.75rem;
+  }
+
+  .task-header .task-status {
+    max-width: 55%;
+  }
+
+  .attachments-list {
+    gap: 0.65rem;
+  }
+
+  .attachment-item img {
+    max-width: 170px;
+    max-height: 170px;
+  }
+
+  .translation-fields,
+  .translation-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+  }
+
+  .modal-content {
+    width: min(94vw, 760px);
+    padding: 1.35rem;
+  }
+
+  .confirm-dialog {
+    max-width: 520px;
+  }
+}
+
+@media (max-width: 600px) {
+  .auth-container {
+    max-width: none;
+    margin: 0 0.75rem;
+    padding: 1.25rem 1rem;
+    border-radius: 10px;
+  }
+
+  .auth-container h1 {
+    font-size: 1.9rem;
+    line-height: 1.2;
+  }
+
+  header {
+    padding: 0.8rem 0.9rem;
     flex-direction: column;
+    align-items: flex-start;
+    gap: 0.65rem;
+  }
+
+  header h1 {
+    font-size: 1.2rem;
+    line-height: 1.25;
+  }
+
+  .header-right {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  #user-display {
+    width: 100%;
+    font-size: 0.9rem;
+  }
+
+  #logout-btn {
+    margin-left: auto;
+  }
+
+  .header-users-wrap {
+    width: 100%;
+  }
+
+  .header-users-btn {
+    width: 100%;
+    text-align: left;
+  }
+
+  .header-users-dropdown {
+    left: 0;
+    right: auto;
+    width: min(100%, calc(100vw - 1.8rem));
+  }
+
+  .container {
+    margin: 1rem auto;
+    padding: 0 0.6rem;
+  }
+
+  .create-task,
+  .task-card,
+  .translations-display {
+    padding: 1rem;
+  }
+
+  #create-task-form button,
+  .task-actions button,
+  .btn-submit-translation {
+    min-height: 42px;
+  }
+
+  .filters {
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+
+  .filter-btn {
+    font-size: 0.85rem;
+    padding: 0.45rem 0.75rem;
+  }
+
+  .task-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.55rem;
+  }
+
+  .task-header .task-status {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .task-title {
+    font-size: 1rem;
   }
 
   .task-meta {
@@ -1157,8 +1327,109 @@ header h1 {
     gap: 0.25rem;
   }
 
-  .pending-reg-card {
+  .attachments-list {
+    gap: 0.55rem;
+  }
+
+  .attachment-item img {
+    max-width: 140px;
+    max-height: 140px;
+  }
+
+  .attachment-item.file-attachment .file-name {
+    max-width: 90px;
+  }
+
+  .translation-fields,
+  .translation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+  }
+
+  .stat-item {
+    min-width: 0;
+    padding: 0.85rem 0.5rem;
+  }
+
+  .stat-value {
+    font-size: 1.3rem;
+  }
+
+  .stat-label {
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .pending-reg-card,
+  .admin-user-card {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .pending-reg-actions,
+  .admin-user-actions {
+    width: 100%;
+  }
+
+  .btn-pending-approve,
+  .btn-pending-reject,
+  .btn-user-delete {
+    flex: 1;
+    min-height: 40px;
+  }
+
+  .modal-overlay {
+    padding: 0.6rem;
+  }
+
+  .modal-content {
+    width: 100%;
+    max-height: 94vh;
+    padding: 1rem 0.85rem;
+    border-radius: 10px;
+  }
+
+  .modal-header h2 {
+    font-size: 1.05rem;
+  }
+
+  .confirm-dialog {
+    max-width: none;
+    width: 100%;
+    padding: 1rem 0.9rem;
+  }
+
+  .confirm-dialog__actions {
+    justify-content: stretch;
+  }
+
+  .confirm-dialog__btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .toast-container {
+    right: 0.55rem;
+    left: 0.55rem;
+    bottom: 0.65rem;
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .task-actions button {
+    width: 100%;
   }
 }
