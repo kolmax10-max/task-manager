@@ -205,13 +205,15 @@ router.post('/:id/translate', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Задача уже переведена' });
   }
 
-  const { ru, ro, en, tr } = req.body;
+  const { ru, ro, en, tr, note } = req.body;
   if (!ru && !ro && !en && !tr) {
     return res.status(400).json({ error: 'Укажите хотя бы один перевод' });
   }
+  const noteText = typeof note === 'string' ? note.trim() : '';
 
   const updated = await updateTask(parseInt(req.params.id), {
     translations: { ru: ru || '', ro: ro || '', en: en || '', tr: tr || '' },
+    translation_note: noteText.slice(0, 5000),
     translated_by: req.user.id,
     translation_status: 'approved',
     status: 'pending'

@@ -71,6 +71,7 @@ async function initDB() {
   `);
 
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachments_removed_at TIMESTAMP NULL`);
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS translation_note TEXT NOT NULL DEFAULT ''`);
   await pool.query(`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS storage_day DATE NULL`);
 
   await pool.query(`

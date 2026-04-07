@@ -518,6 +518,11 @@ function renderTasks(tasks) {
           ${task.translations.en ? `<div class="translation-block"><strong>EN</strong><p>${escapeHtml(task.translations.en)}</p></div>` : ''}
           ${task.translations.tr ? `<div class="translation-block"><strong>TR</strong><p>${escapeHtml(task.translations.tr)}</p></div>` : ''}
         </div>
+        ${
+          task.translation_note
+            ? `<div class="translation-note"><strong>Заметка переводчика:</strong><p>${escapeHtml(task.translation_note)}</p></div>`
+            : ''
+        }
       </div>`;
     }
 
@@ -806,6 +811,7 @@ function openTranslation(id) {
       $('#trans-ro').value = '';
       $('#trans-en').value = '';
       $('#trans-tr').value = '';
+      $('#trans-note').value = taskData.translation_note || '';
 
       $('#translation-modal').classList.remove('hidden');
     })
@@ -1048,7 +1054,8 @@ if (translationForm) {
       ru: $('#trans-ru').value.trim(),
       ro: $('#trans-ro').value.trim(),
       en: $('#trans-en').value.trim(),
-      tr: $('#trans-tr').value.trim()
+      tr: $('#trans-tr').value.trim(),
+      note: $('#trans-note').value.trim()
     };
 
     if (!translations.ru && !translations.ro && !translations.en && !translations.tr) {

@@ -643,6 +643,29 @@ header h1 {
   white-space: pre-wrap;
 }
 
+.translation-note {
+  margin-top: 0.8rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e7ebf2;
+}
+
+.translation-note strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: #4b587c;
+  font-size: 0.88rem;
+}
+
+.translation-note p {
+  margin: 0;
+  color: #444;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -1140,6 +1163,17 @@ header h1 {
   background: #eef4ff;
   border-color: #c5d5f5;
   color: #1a3a6e;
+}
+
+@media (min-width: 1200px) {
+  .container {
+    max-width: 1180px;
+  }
+
+  .task-card,
+  .create-task {
+    padding: 1.4rem 1.5rem;
+  }
 }
 
 @media (min-width: 601px) and (max-width: 900px) {
