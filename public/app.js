@@ -12,6 +12,8 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 /** Лимит размера одного файла (должен совпадать с MAX_UPLOAD_MB на сервере, по умолчанию 50 МБ) */
 const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+/** Совпадает с лимитом multer в routes/tasks.js */
+const MAX_TASK_ATTACHMENTS = 25;
 
 function formatBytesReadable(bytes) {
   if (bytes == null || bytes < 0) return '0 Б';
@@ -29,7 +31,7 @@ function updateAttachmentSummaryLabel() {
   const labelWrap = label.closest('.file-label');
 
   if (!selectedFiles.length) {
-    label.textContent = 'Прикрепить файлы (до ~50 МБ на файл)';
+    label.textContent = 'Прикрепить файлы (до ~50 МБ на файл; можно добавлять несколькими выборами)';
     labelWrap?.classList.remove('file-label--over-limit');
     return;
   }
@@ -43,6 +45,83 @@ function updateAttachmentSummaryLabel() {
   } else {
     labelWrap?.classList.remove('file-label--over-limit');
   }
+}
+
+function taskFileSignature(f) {
+  return `${f.name}\0${f.size}\0${f.lastModified}`;
+}
+
+function syncTaskAttachmentsInputFiles() {
+  const input = $('#task-attachments');
+  if (!input) return;
+  const dt = new DataTransfer();
+  selectedFiles.forEach((f) => dt.items.add(f));
+  input.files = dt.files;
+}
+
+function renderTaskFilePreviews() {
+  const container = $('#file-preview-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!selectedFiles.length) {
+    container.classList.add('hidden');
+    updateAttachmentSummaryLabel();
+    return;
+  }
+
+  container.classList.remove('hidden');
+  updateAttachmentSummaryLabel();
+
+  selectedFiles.forEach((file) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'file-preview-item';
+
+    if (file.type.startsWith('image/')) {
+      const img = document.createElement('img');
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+      img.alt = file.name;
+      wrapper.appendChild(img);
+    } else {
+      const icon = document.createElement('div');
+      icon.className = 'file-icon';
+      const ext = file.name.split('.').pop().toUpperCase();
+      icon.textContent = ext;
+      wrapper.appendChild(icon);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'file-name';
+    name.textContent = file.name;
+    wrapper.appendChild(name);
+
+    const sizeHint = document.createElement('span');
+    sizeHint.className = 'file-preview-size';
+    sizeHint.textContent = formatBytesReadable(file.size);
+    wrapper.appendChild(sizeHint);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'file-remove';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => {
+      const idx = selectedFiles.indexOf(file);
+      if (idx > -1) selectedFiles.splice(idx, 1);
+      syncTaskAttachmentsInputFiles();
+      wrapper.remove();
+      if (!selectedFiles.length) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+      }
+      updateAttachmentSummaryLabel();
+    });
+    wrapper.appendChild(removeBtn);
+
+    container.appendChild(wrapper);
+  });
 }
 
 let toastAutoRemoveTimer;
@@ -914,77 +993,33 @@ if (registerForm) {
 const logoutBtn = $('#logout-btn');
 if (logoutBtn) logoutBtn.addEventListener('click', logout);
 
-// File preview
+// File preview (можно добавлять файлы несколькими выборами — новые дописываются к списку)
 const taskAttachmentsInput = $('#task-attachments');
 if (taskAttachmentsInput) {
   taskAttachmentsInput.addEventListener('change', (e) => {
-  selectedFiles = Array.from(e.target.files);
-  const container = $('#file-preview-container');
-  if (!container) return;
-  container.innerHTML = '';
+    const input = e.target;
+    const incoming = Array.from(input.files || []);
+    const seen = new Set(selectedFiles.map(taskFileSignature));
+    let stoppedByLimit = false;
 
-  if (selectedFiles.length) {
-    container.classList.remove('hidden');
-    updateAttachmentSummaryLabel();
-
-    selectedFiles.forEach((file) => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'file-preview-item';
-
-      if (file.type.startsWith('image/')) {
-        const img = document.createElement('img');
-        const reader = new FileReader();
-        reader.onload = (ev) => { img.src = ev.target.result; };
-        reader.readAsDataURL(file);
-        img.alt = file.name;
-        wrapper.appendChild(img);
-      } else {
-        const icon = document.createElement('div');
-        icon.className = 'file-icon';
-        const ext = file.name.split('.').pop().toUpperCase();
-        icon.textContent = ext;
-        wrapper.appendChild(icon);
+    for (const f of incoming) {
+      if (selectedFiles.length >= MAX_TASK_ATTACHMENTS) {
+        stoppedByLimit = true;
+        break;
       }
+      const sig = taskFileSignature(f);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      selectedFiles.push(f);
+    }
 
-      const name = document.createElement('span');
-      name.className = 'file-name';
-      name.textContent = file.name;
-      wrapper.appendChild(name);
+    input.value = '';
+    syncTaskAttachmentsInputFiles();
+    renderTaskFilePreviews();
 
-      const sizeHint = document.createElement('span');
-      sizeHint.className = 'file-preview-size';
-      sizeHint.textContent = formatBytesReadable(file.size);
-      wrapper.appendChild(sizeHint);
-
-      const removeBtn = document.createElement('button');
-      removeBtn.className = 'file-remove';
-      removeBtn.textContent = '×';
-      removeBtn.addEventListener('click', () => {
-        const idx = selectedFiles.indexOf(file);
-        if (idx > -1) selectedFiles.splice(idx, 1);
-        const input = $('#task-attachments');
-        if (!input) return;
-        const dt = new DataTransfer();
-        selectedFiles.forEach(f => dt.items.add(f));
-        input.files = dt.files;
-        wrapper.remove();
-        if (selectedFiles.length === 0) {
-          container.classList.add('hidden');
-          container.innerHTML = '';
-          updateAttachmentSummaryLabel();
-        } else {
-          updateAttachmentSummaryLabel();
-        }
-      });
-      wrapper.appendChild(removeBtn);
-
-      container.appendChild(wrapper);
-    });
-  } else {
-    container.classList.add('hidden');
-    container.innerHTML = '';
-    updateAttachmentSummaryLabel();
-  }
+    if (stoppedByLimit) {
+      showToast(`Не больше ${MAX_TASK_ATTACHMENTS} файлов за одну публикацию`, 'info');
+    }
   });
 }
 

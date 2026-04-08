@@ -5,6 +5,7 @@ const archiver = require('archiver');
 const { getAllTasks, getTaskById, createTask, updateTask, deleteTask } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const fileStorage = require('../lib/file-storage');
+const { normalizeUploadFilename } = require('../lib/normalize-upload-filename');
 
 const maxMb = Math.min(500, Math.max(1, parseInt(process.env.MAX_UPLOAD_MB || '50', 10) || 50));
 const MAX_FILE_BYTES = maxMb * 1024 * 1024;
@@ -13,6 +14,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_FILE_BYTES, files: 25 },
   fileFilter: (req, file, cb) => {
+    file.originalname = normalizeUploadFilename(file.originalname);
     const allowed = [
       'image/jpeg',
       'image/png',
