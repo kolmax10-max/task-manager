@@ -526,22 +526,38 @@ function renderTasks(tasks) {
       </div>`;
     }
 
+    const dateStr = new Date(task.created_at).toLocaleString('ru');
+    const authorName = task.creator_name ? escapeHtml(task.creator_name) : '—';
+    const translatorLine = task.translator_name
+      ? `<span class="task-card__summary-part">Переводчик: ${escapeHtml(task.translator_name)}</span>`
+      : '';
+    const assigneeLine = task.assignee_name
+      ? `<span class="task-card__summary-part">Исполнитель: ${escapeHtml(task.assignee_name)}</span>`
+      : '';
+
     return `
-      <div class="task-card">
-        <div class="task-header">
-          <span class="task-title">${escapeHtml(task.title)}</span>
-          <span class="task-status status-${task.status}">${escapeHtml(statusText)}</span>
+      <details class="task-card">
+        <summary class="task-card__summary">
+          <div class="task-card__summary-inner">
+            <div class="task-card__summary-row task-card__summary-row--top">
+              <span class="task-title">${escapeHtml(task.title)}</span>
+              <span class="task-status status-${task.status}">${escapeHtml(statusText)}</span>
+            </div>
+            <div class="task-card__summary-row task-card__summary-row--meta">
+              <span class="task-card__summary-part task-card__summary-date">${escapeHtml(dateStr)}</span>
+              <span class="task-card__summary-part">Автор: ${authorName}</span>
+              ${translatorLine}
+              ${assigneeLine}
+            </div>
+          </div>
+        </summary>
+        <div class="task-card__body">
+          ${task.description ? `<p class="task-description">${escapeHtml(task.description)}</p>` : ''}
+          ${attachmentsHtml}
+          ${translationsHtml}
+          ${actions ? `<div class="task-actions">${actions}</div>` : ''}
         </div>
-        ${task.description ? `<p class="task-description">${escapeHtml(task.description)}</p>` : ''}
-        ${attachmentsHtml}
-        ${translationsHtml}
-        <div class="task-meta">
-          <span>Автор: ${escapeHtml(task.creator_name)}</span>
-          ${task.assignee_name ? `<span>Исполнитель: ${escapeHtml(task.assignee_name)}</span>` : ''}
-          <span>${new Date(task.created_at).toLocaleString('ru')}</span>
-        </div>
-        ${actions ? `<div class="task-actions">${actions}</div>` : ''}
-      </div>
+      </details>
     `;
   }).join('');
 }
