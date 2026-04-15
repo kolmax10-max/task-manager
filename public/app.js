@@ -10,8 +10,8 @@ let currentTranslationTaskId = null;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
-/** Лимит размера одного файла (должен совпадать с MAX_UPLOAD_MB на сервере, по умолчанию 50 МБ) */
-const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+/** Лимит размера одного файла (должен совпадать с MAX_UPLOAD_MB на сервере, по умолчанию 500 МБ) */
+const MAX_UPLOAD_FILE_BYTES = 500 * 1024 * 1024;
 /** Совпадает с лимитом multer в routes/tasks.js */
 const MAX_TASK_ATTACHMENTS = 25;
 
@@ -31,7 +31,7 @@ function updateAttachmentSummaryLabel() {
   const labelWrap = label.closest('.file-label');
 
   if (!selectedFiles.length) {
-    label.textContent = 'Прикрепить файлы (до ~50 МБ на файл; можно добавлять несколькими выборами)';
+    label.textContent = 'Прикрепить файлы (до ~500 МБ на файл; можно добавлять несколькими выборами)';
     labelWrap?.classList.remove('file-label--over-limit');
     return;
   }
@@ -176,7 +176,7 @@ function showStickyToast(message, variant = 'info') {
 }
 
 /** Таймаут только для тяжёлых запросов (multipart с файлами). */
-const MULTIPART_UPLOAD_DEADLINE_MS = 120000;
+const MULTIPART_UPLOAD_DEADLINE_MS = 600000;
 
 let confirmResolver = null;
 
