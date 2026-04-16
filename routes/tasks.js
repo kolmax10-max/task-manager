@@ -128,7 +128,8 @@ function getVisibleTasks(tasks, user, filter) {
       return tasks;
     case 'executor':
       if (filter === 'available') return tasks.filter((t) => t.translation_status === 'approved' && t.status === 'pending');
-      if (filter === 'my_tasks') return tasks.filter((t) => sameUserId(t.assigned_to, user.id));
+      // Чтобы вкладка "Мои задачи" не дублировала вкладку "Завершённые"
+      if (filter === 'my_tasks') return tasks.filter((t) => sameUserId(t.assigned_to, user.id) && t.status !== 'completed');
       if (filter === 'completed') {
         return tasks.filter((t) => sameUserId(t.assigned_to, user.id) && t.status === 'completed');
       }
