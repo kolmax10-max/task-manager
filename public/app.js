@@ -647,6 +647,17 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/**
+ * Удаляет emoji/пиктограммы из текста (включая вариационные селекторы и ZWJ).
+ * Оставляет обычные буквы, цифры и пунктуацию.
+ */
+function stripEmojis(text) {
+  if (typeof text !== 'string' || !text) return '';
+  return text
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/[\u200D\uFE0F]/g, '');
+}
+
 /** Вложения отдаются через API с проверкой прав (не прямой URL к файлу на диске). */
 function attachmentProxyUrl(taskId, index) {
   const base = `${API}/tasks/${taskId}/attachments/${index}`;
@@ -1167,6 +1178,27 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   closeHeaderUsersDropdown();
+});
+
+// При вставке очищаем emoji во всех полях ввода/текста.
+document.addEventListener('paste', (e) => {
+  const target = e.target;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+  if (target.readOnly || target.disabled) return;
+
+  const clipboardText = e.clipboardData?.getData('text') ?? '';
+  const cleaned = stripEmojis(clipboardText);
+  if (cleaned === clipboardText) return;
+
+  e.preventDefault();
+
+  const start = target.selectionStart ?? target.value.length;
+  const end = target.selectionEnd ?? target.value.length;
+  const nextValue = `${target.value.slice(0, start)}${cleaned}${target.value.slice(end)}`;
+  target.value = nextValue;
+  const cursorPos = start + cleaned.length;
+  target.setSelectionRange(cursorPos, cursorPos);
+  target.dispatchEvent(new Event('input', { bubbles: true }));
 });
 
 // Filters
