@@ -1,6 +1,8 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs').promises;
+const crypto = require('crypto');
 const archiver = require('archiver');
 const { getAllTasks, getTaskById, createTask, updateTask, deleteTask } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
@@ -10,8 +12,25 @@ const { normalizeUploadFilename } = require('../lib/normalize-upload-filename');
 const maxMb = Math.min(500, Math.max(1, parseInt(process.env.MAX_UPLOAD_MB || '500', 10) || 500));
 const MAX_FILE_BYTES = maxMb * 1024 * 1024;
 
+const diskStorage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    try {
+      const root = await fileStorage.ensureUploadDir();
+      cb(null, path.join(root, 'tmp'));
+    } catch (e) {
+      cb(e);
+    }
+  },
+  filename: (req, file, cb) => {
+    const safe = normalizeUploadFilename(file.originalname || 'file')
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 120) || 'file';
+    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}-${safe}`);
+  }
+});
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: diskStorage,
   limits: { fileSize: MAX_FILE_BYTES, files: 25 },
   fileFilter: (req, file, cb) => {
     file.originalname = normalizeUploadFilename(file.originalname);
@@ -40,6 +59,14 @@ const upload = multer({
 });
 
 const router = express.Router();
+
+async function cleanupTempUploadFiles(files) {
+  if (!Array.isArray(files)) return;
+  await Promise.all(files.map(async (f) => {
+    if (!f || typeof f.path !== 'string') return;
+    await fs.unlink(f.path).catch(() => {});
+  }));
+}
 
 function sameUserId(a, b) {
   return Number(a) === Number(b);
@@ -171,9 +198,8 @@ router.post('/', authenticateToken, async (req, res) => {
 
       const attachments = [];
       if (req.files && req.files.length) {
-        await fileStorage.ensureUploadDir();
         for (const file of req.files) {
-          const saved = await fileStorage.saveUploadedFile(file.originalname, file.buffer, file.mimetype);
+          const saved = await fileStorage.saveUploadedTempFile(file);
           attachments.push({
             filename: saved.filename,
             originalName: saved.originalName,
@@ -187,6 +213,7 @@ router.post('/', authenticateToken, async (req, res) => {
       const task = await createTask(title, description, req.user.id, attachments);
       res.status(201).json({ task });
     } catch (e) {
+      await cleanupTempUploadFiles(req.files);
       console.error('create task:', e);
       res.status(500).json({ error: e && e.message ? e.message : 'Не удалось сохранить публикацию' });
     }
