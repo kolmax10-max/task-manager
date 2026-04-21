@@ -177,6 +177,20 @@
             <label for="edit-task-description-input">Текст публикации</label>
             <textarea id="edit-task-description-input" placeholder="Текст публикации"></textarea>
           </div>
+          <div class="translation-field">
+            <label>Вложения</label>
+            <div class="edit-attachments-box">
+              <div class="edit-attachments-section">
+                <div class="edit-attachments-section-title">Текущие файлы</div>
+                <div id="edit-existing-attachments" class="edit-attachments-list"></div>
+              </div>
+              <div class="edit-attachments-section">
+                <label for="edit-task-new-attachments" class="edit-attachments-picker">Добавить файлы</label>
+                <input type="file" id="edit-task-new-attachments" multiple accept="image/*,.pdf,.docx,.zip,.rar,.7z">
+                <div id="edit-new-attachments" class="edit-attachments-list edit-attachments-list--new"></div>
+              </div>
+            </div>
+          </div>
           <div class="edit-task-actions">
             <button type="button" id="cancel-edit-task" class="edit-task-cancel-btn">Отмена</button>
             <button type="submit" class="edit-task-submit-btn">Сохранить изменения</button>

@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const crypto = require('crypto');
 const archiver = require('archiver');
-const { getAllTasks, getTaskById, createTask, updateTask, deleteTask } = require('../db');
+const { getAllTasks, getTaskById, createTask, updateTask, updateTaskWithAttachments, deleteTask } = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 const fileStorage = require('../lib/file-storage');
 const { normalizeUploadFilename } = require('../lib/normalize-upload-filename');
@@ -253,33 +253,111 @@ router.post('/:id/translate', authenticateToken, async (req, res) => {
 });
 
 router.put('/:id', authenticateToken, async (req, res) => {
-  const taskId = parseInt(req.params.id, 10);
-  if (!Number.isFinite(taskId)) {
-    return res.status(400).json({ error: 'Некорректный id задачи' });
+  async function handleEditRequest(uploadedFiles = []) {
+    const taskId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(taskId)) {
+      await cleanupTempUploadFiles(uploadedFiles);
+      return res.status(400).json({ error: 'Некорректный id задачи' });
+    }
+
+    const task = await getTaskById(taskId);
+    if (!task) {
+      await cleanupTempUploadFiles(uploadedFiles);
+      return res.status(404).json({ error: 'Задача не найдена' });
+    }
+
+    const isAuthorOwner = req.user.role === 'author' && sameUserId(task.created_by, req.user.id);
+    if (!isAuthorOwner) {
+      await cleanupTempUploadFiles(uploadedFiles);
+      return res.status(403).json({ error: 'Редактировать задачу может только её автор' });
+    }
+
+    if (task.translation_status !== 'pending') {
+      await cleanupTempUploadFiles(uploadedFiles);
+      return res.status(400).json({ error: 'Нельзя изменить задачу после перевода' });
+    }
+
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const description = typeof req.body?.description === 'string' ? req.body.description : '';
+    if (!title) {
+      await cleanupTempUploadFiles(uploadedFiles);
+      return res.status(400).json({ error: 'Укажите заголовок' });
+    }
+
+    let keepAttachmentIds = task.attachments.map((att) => Number(att.id));
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'keepAttachmentIds')) {
+      const raw = req.body.keepAttachmentIds;
+      let parsed = raw;
+      if (typeof raw === 'string') {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = [];
+        }
+      }
+      if (!Array.isArray(parsed)) {
+        await cleanupTempUploadFiles(uploadedFiles);
+        return res.status(400).json({ error: 'Некорректный формат keepAttachmentIds' });
+      }
+      const existingIds = new Set(task.attachments.map((att) => Number(att.id)));
+      const normalized = parsed.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+      if (normalized.length !== parsed.length || normalized.some((id) => !existingIds.has(id))) {
+        await cleanupTempUploadFiles(uploadedFiles);
+        return res.status(400).json({ error: 'Список вложений для сохранения содержит некорректные id' });
+      }
+      keepAttachmentIds = normalized;
+    }
+
+    const newAttachments = [];
+    try {
+      for (const file of uploadedFiles) {
+        const saved = await fileStorage.saveUploadedTempFile(file);
+        newAttachments.push({
+          filename: saved.filename,
+          originalName: saved.originalName,
+          mimetype: saved.mimetype,
+          size: saved.size,
+          url: saved.url
+        });
+      }
+
+      if (keepAttachmentIds.length + newAttachments.length > MAX_TASK_ATTACHMENTS) {
+        for (const att of newAttachments) {
+          await fileStorage.deleteStoredFile(att.url).catch(() => {});
+        }
+        return res.status(400).json({ error: `Не больше ${MAX_TASK_ATTACHMENTS} файлов на публикацию` });
+      }
+
+      const result = await updateTaskWithAttachments(taskId, {
+        title,
+        description,
+        keepAttachmentIds,
+        newAttachments
+      });
+      for (const removedUrl of result.removedUrls) {
+        await fileStorage.deleteStoredFile(removedUrl).catch(() => {});
+      }
+      return res.json({ task: result.task });
+    } catch (e) {
+      await cleanupTempUploadFiles(uploadedFiles);
+      for (const att of newAttachments) {
+        await fileStorage.deleteStoredFile(att.url).catch(() => {});
+      }
+      console.error('update task:', e);
+      return res.status(500).json({ error: e?.message || 'Не удалось изменить публикацию' });
+    }
   }
 
-  const task = await getTaskById(taskId);
-  if (!task) {
-    return res.status(404).json({ error: 'Задача не найдена' });
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) {
+    upload.array('attachments', 25)(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      return handleEditRequest(req.files || []);
+    });
+    return;
   }
 
-  const isAuthorOwner = req.user.role === 'author' && sameUserId(task.created_by, req.user.id);
-  if (!isAuthorOwner) {
-    return res.status(403).json({ error: 'Редактировать задачу может только её автор' });
-  }
-
-  if (task.translation_status !== 'pending') {
-    return res.status(400).json({ error: 'Нельзя изменить задачу после перевода' });
-  }
-
-  const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
-  const description = typeof req.body?.description === 'string' ? req.body.description : '';
-  if (!title) {
-    return res.status(400).json({ error: 'Укажите заголовок' });
-  }
-
-  const updated = await updateTask(taskId, { title, description });
-  res.json({ task: updated });
+  return handleEditRequest([]);
 });
 
 router.post('/:id/take', authenticateToken, async (req, res) => {

@@ -308,6 +308,63 @@ async function updateTask(id, updates) {
   return getTaskById(id);
 }
 
+async function updateTaskWithAttachments(id, { title, description, keepAttachmentIds, newAttachments }) {
+  const task = await getTaskById(id);
+  if (!task) return null;
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `UPDATE tasks
+       SET title = $1, description = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [title, description || '', id]
+    );
+
+    let removedRows;
+    if (Array.isArray(keepAttachmentIds) && keepAttachmentIds.length > 0) {
+      removedRows = await client.query(
+        `DELETE FROM attachments
+         WHERE task_id = $1 AND id <> ALL($2::int[])
+         RETURNING url`,
+        [id, keepAttachmentIds]
+      );
+    } else {
+      removedRows = await client.query(
+        `DELETE FROM attachments
+         WHERE task_id = $1
+         RETURNING url`,
+        [id]
+      );
+    }
+
+    if (Array.isArray(newAttachments) && newAttachments.length) {
+      for (const att of newAttachments) {
+        await client.query(
+          `INSERT INTO attachments (task_id, filename, original_name, mimetype, size, url)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, att.filename, att.originalName, att.mimetype, att.size, att.url]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    return {
+      task: await getTaskById(id),
+      removedUrls: (removedRows?.rows || []).map((r) => r.url).filter(Boolean)
+    };
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 async function deleteTask(id) {
   const result = await getPool().query('DELETE FROM tasks WHERE id = $1', [id]);
   return result.rowCount > 0;
@@ -328,5 +385,6 @@ module.exports = {
   getTaskById,
   createTask,
   updateTask,
+  updateTaskWithAttachments,
   deleteTask
 };

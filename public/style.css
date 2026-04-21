@@ -919,6 +919,81 @@ details[open] > .task-card__summary::before {
   resize: vertical;
 }
 
+.edit-attachments-box {
+  border: 1px solid #e1e5e9;
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: #fafbff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.edit-attachments-section-title {
+  font-size: 0.85rem;
+  color: #53607a;
+  margin-bottom: 0.45rem;
+}
+
+.edit-attachments-picker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #b7c2dd;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.9rem;
+  color: #33446b;
+  background: #eef2ff;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+
+#edit-task-new-attachments {
+  display: none;
+}
+
+.edit-attachments-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.edit-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #d9dfed;
+  background: white;
+}
+
+.edit-attachment-chip__name {
+  font-size: 0.82rem;
+  color: #3f4a62;
+  max-width: 300px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.edit-attachment-chip__btn {
+  border: none;
+  background: #f2f4f8;
+  color: #3f4a62;
+  border-radius: 6px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.edit-attachments-empty {
+  font-size: 0.82rem;
+  color: #7a849a;
+}
+
 .edit-task-form input:focus,
 .edit-task-form textarea:focus {
   outline: none;
@@ -1630,6 +1705,10 @@ details[open] > .task-card__summary::before {
   .edit-task-submit-btn {
     width: 100%;
     min-height: 42px;
+  }
+
+  .edit-attachment-chip__name {
+    max-width: 190px;
   }
 
   .modal-header h2 {

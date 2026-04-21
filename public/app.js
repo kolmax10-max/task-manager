@@ -7,6 +7,8 @@ let currentFilter = 'all';
 let selectedFiles = [];
 let currentTranslationTaskId = null;
 let currentEditingTaskId = null;
+let currentEditingExistingAttachments = [];
+let currentEditingNewFiles = [];
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -123,6 +125,39 @@ function renderTaskFilePreviews() {
 
     container.appendChild(wrapper);
   });
+}
+
+function renderEditAttachments() {
+  const existingRoot = $('#edit-existing-attachments');
+  const newRoot = $('#edit-new-attachments');
+  if (!existingRoot || !newRoot) return;
+
+  const keptExisting = currentEditingExistingAttachments.filter((att) => !att.removed);
+  if (!keptExisting.length) {
+    existingRoot.innerHTML = '<span class="edit-attachments-empty">Нет сохранённых файлов</span>';
+  } else {
+    existingRoot.innerHTML = keptExisting
+      .map((att) => `
+        <div class="edit-attachment-chip">
+          <span class="edit-attachment-chip__name">${escapeHtml(att.originalName || att.filename || 'file')}</span>
+          <button type="button" class="edit-attachment-chip__btn" data-action="remove-existing" data-id="${att.id}">Удалить</button>
+        </div>
+      `)
+      .join('');
+  }
+
+  if (!currentEditingNewFiles.length) {
+    newRoot.innerHTML = '<span class="edit-attachments-empty">Новые файлы не добавлены</span>';
+  } else {
+    newRoot.innerHTML = currentEditingNewFiles
+      .map((file, idx) => `
+        <div class="edit-attachment-chip">
+          <span class="edit-attachment-chip__name">${escapeHtml(file.name)}</span>
+          <button type="button" class="edit-attachment-chip__btn" data-action="remove-new" data-index="${idx}">Убрать</button>
+        </div>
+      `)
+      .join('');
+  }
 }
 
 let toastAutoRemoveTimer;
@@ -885,6 +920,11 @@ async function editTask(id) {
   }
   titleInput.value = task.title || '';
   descriptionInput.value = typeof task.description === 'string' ? task.description : '';
+  currentEditingExistingAttachments = (task.attachments || []).map((att) => ({ ...att, removed: false }));
+  currentEditingNewFiles = [];
+  const newFilesInput = $('#edit-task-new-attachments');
+  if (newFilesInput) newFilesInput.value = '';
+  renderEditAttachments();
   $('#edit-task-modal')?.classList.remove('hidden');
   titleInput.focus();
 }
@@ -892,6 +932,10 @@ async function editTask(id) {
 function closeEditTaskModal() {
   $('#edit-task-modal')?.classList.add('hidden');
   currentEditingTaskId = null;
+  currentEditingExistingAttachments = [];
+  currentEditingNewFiles = [];
+  const newFilesInput = $('#edit-task-new-attachments');
+  if (newFilesInput) newFilesInput.value = '';
 }
 
 async function downloadZip(id) {
@@ -1194,12 +1238,29 @@ if (editTaskForm) {
       return;
     }
 
+    const keepAttachmentIds = currentEditingExistingAttachments.filter((att) => !att.removed).map((att) => att.id);
+    if (keepAttachmentIds.length + currentEditingNewFiles.length > MAX_TASK_ATTACHMENTS) {
+      showToast(`Не больше ${MAX_TASK_ATTACHMENTS} файлов на публикацию`, 'info');
+      return;
+    }
+
+    if (currentEditingNewFiles.some((f) => f.size > MAX_UPLOAD_FILE_BYTES)) {
+      showToast(`Один файл не больше ${formatBytesReadable(MAX_UPLOAD_FILE_BYTES)}`, 'error');
+      return;
+    }
+
     const submitBtn = editTaskForm.querySelector('button[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
     try {
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('description', description);
+      formData.append('keepAttachmentIds', JSON.stringify(keepAttachmentIds));
+      currentEditingNewFiles.forEach((f) => formData.append('attachments', f));
       await api(`/tasks/${currentEditingTaskId}`, {
         method: 'PUT',
-        body: JSON.stringify({ title, description })
+        body: formData,
+        formData: true
       });
       showToast('Публикация обновлена', 'success');
       closeEditTaskModal();
@@ -1218,6 +1279,48 @@ if (editTaskModal) {
     if (e.target === editTaskModal) closeEditTaskModal();
   });
 }
+
+const editAttachmentsNewInput = $('#edit-task-new-attachments');
+if (editAttachmentsNewInput) {
+  editAttachmentsNewInput.addEventListener('change', (e) => {
+    const incoming = Array.from(e.target.files || []);
+    const seen = new Set(currentEditingNewFiles.map(taskFileSignature));
+    for (const f of incoming) {
+      const sig = taskFileSignature(f);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      currentEditingNewFiles.push(f);
+    }
+    e.target.value = '';
+    renderEditAttachments();
+  });
+}
+
+const editExistingAttachmentsRoot = $('#edit-existing-attachments');
+if (editExistingAttachmentsRoot) {
+  editExistingAttachmentsRoot.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action="remove-existing"]');
+    if (!btn) return;
+    const attId = Number(btn.dataset.id);
+    const target = currentEditingExistingAttachments.find((att) => Number(att.id) === attId);
+    if (!target) return;
+    target.removed = true;
+    renderEditAttachments();
+  });
+}
+
+const editNewAttachmentsRoot = $('#edit-new-attachments');
+if (editNewAttachmentsRoot) {
+  editNewAttachmentsRoot.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action="remove-new"]');
+    if (!btn) return;
+    const idx = Number(btn.dataset.index);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= currentEditingNewFiles.length) return;
+    currentEditingNewFiles.splice(idx, 1);
+    renderEditAttachments();
+  });
+}
+
 $('#close-edit-task')?.addEventListener('click', closeEditTaskModal);
 $('#cancel-edit-task')?.addEventListener('click', closeEditTaskModal);
 
