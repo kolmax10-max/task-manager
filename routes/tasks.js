@@ -252,6 +252,36 @@ router.post('/:id/translate', authenticateToken, async (req, res) => {
   res.json({ task: updated });
 });
 
+router.put('/:id', authenticateToken, async (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(taskId)) {
+    return res.status(400).json({ error: 'Некорректный id задачи' });
+  }
+
+  const task = await getTaskById(taskId);
+  if (!task) {
+    return res.status(404).json({ error: 'Задача не найдена' });
+  }
+
+  const isAuthorOwner = req.user.role === 'author' && sameUserId(task.created_by, req.user.id);
+  if (!isAuthorOwner) {
+    return res.status(403).json({ error: 'Редактировать задачу может только её автор' });
+  }
+
+  if (task.translation_status !== 'pending') {
+    return res.status(400).json({ error: 'Нельзя изменить задачу после перевода' });
+  }
+
+  const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+  const description = typeof req.body?.description === 'string' ? req.body.description : '';
+  if (!title) {
+    return res.status(400).json({ error: 'Укажите заголовок' });
+  }
+
+  const updated = await updateTask(taskId, { title, description });
+  res.json({ task: updated });
+});
+
 router.post('/:id/take', authenticateToken, async (req, res) => {
   if (req.user.role !== 'executor') {
     return res.status(403).json({ error: 'Только исполнители могут брать задачи' });

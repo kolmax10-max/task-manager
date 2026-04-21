@@ -514,6 +514,7 @@ function bindTaskListActions() {
         void Promise.resolve(fn(id)).catch((err) => showToast(err?.message || 'Ошибка'));
       if (action === 'delete') runAsync(deleteTask);
       else if (action === 'translate') openTranslation(id);
+      else if (action === 'edit') runAsync(editTask);
       else if (action === 'zip') runAsync(downloadZip);
       else if (action === 'take') runAsync(takeTask);
       else if (action === 'complete') runAsync(completeTask);
@@ -537,6 +538,10 @@ function renderTasks(tasks) {
 
     if (currentUser.role === 'admin') {
       actions = `<button type="button" class="btn-delete" data-task-action="delete" data-task-id="${task.id}">Удалить</button>`;
+    }
+
+    if (currentUser.role === 'author' && task.translation_status === 'pending') {
+      actions += `<button type="button" class="btn-translate" data-task-action="edit" data-task-id="${task.id}">Изменить</button>`;
     }
 
     if (currentUser.role === 'translator') {
@@ -859,6 +864,39 @@ async function deleteTask(id) {
   } catch (e) {
     showToast(e.message || 'Не удалось удалить публикацию');
   }
+}
+
+async function editTask(id) {
+  const data = await api('/tasks');
+  const task = data.tasks.find((t) => Number(t.id) === Number(id));
+  if (!task) {
+    throw new Error('Задача не найдена');
+  }
+  if (task.translation_status !== 'pending') {
+    throw new Error('Нельзя изменить задачу после перевода');
+  }
+
+  const nextTitleRaw = window.prompt('Изменить заголовок:', task.title || '');
+  if (nextTitleRaw == null) return;
+  const nextTitle = nextTitleRaw.trim();
+  if (!nextTitle) {
+    throw new Error('Укажите заголовок');
+  }
+
+  const currentDescription = typeof task.description === 'string' ? task.description : '';
+  const nextDescriptionRaw = window.prompt('Изменить текст публикации:', currentDescription);
+  if (nextDescriptionRaw == null) return;
+
+  await api(`/tasks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      title: nextTitle,
+      description: nextDescriptionRaw
+    })
+  });
+  showToast('Публикация обновлена', 'success');
+  loadTasks();
+  if (currentUser?.role === 'admin') loadAdminStats();
 }
 
 async function downloadZip(id) {
