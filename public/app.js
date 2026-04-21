@@ -6,6 +6,7 @@ let turnstileWidgetId = null;
 let currentFilter = 'all';
 let selectedFiles = [];
 let currentTranslationTaskId = null;
+let currentEditingTaskId = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -541,7 +542,7 @@ function renderTasks(tasks) {
     }
 
     if (currentUser.role === 'author' && task.translation_status === 'pending') {
-      actions += `<button type="button" class="btn-translate" data-task-action="edit" data-task-id="${task.id}">Изменить</button>`;
+      actions += `<button type="button" class="btn-edit" data-task-action="edit" data-task-id="${task.id}">Изменить</button>`;
     }
 
     if (currentUser.role === 'translator') {
@@ -876,27 +877,21 @@ async function editTask(id) {
     throw new Error('Нельзя изменить задачу после перевода');
   }
 
-  const nextTitleRaw = window.prompt('Изменить заголовок:', task.title || '');
-  if (nextTitleRaw == null) return;
-  const nextTitle = nextTitleRaw.trim();
-  if (!nextTitle) {
-    throw new Error('Укажите заголовок');
+  currentEditingTaskId = Number(task.id);
+  const titleInput = $('#edit-task-title-input');
+  const descriptionInput = $('#edit-task-description-input');
+  if (!titleInput || !descriptionInput) {
+    throw new Error('Форма редактирования недоступна');
   }
+  titleInput.value = task.title || '';
+  descriptionInput.value = typeof task.description === 'string' ? task.description : '';
+  $('#edit-task-modal')?.classList.remove('hidden');
+  titleInput.focus();
+}
 
-  const currentDescription = typeof task.description === 'string' ? task.description : '';
-  const nextDescriptionRaw = window.prompt('Изменить текст публикации:', currentDescription);
-  if (nextDescriptionRaw == null) return;
-
-  await api(`/tasks/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      title: nextTitle,
-      description: nextDescriptionRaw
-    })
-  });
-  showToast('Публикация обновлена', 'success');
-  loadTasks();
-  if (currentUser?.role === 'admin') loadAdminStats();
+function closeEditTaskModal() {
+  $('#edit-task-modal')?.classList.add('hidden');
+  currentEditingTaskId = null;
 }
 
 async function downloadZip(id) {
@@ -1182,6 +1177,50 @@ if (translationModal) {
   });
 }
 
+const editTaskForm = $('#edit-task-form');
+if (editTaskForm) {
+  editTaskForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentEditingTaskId) return;
+    const titleInput = $('#edit-task-title-input');
+    const descriptionInput = $('#edit-task-description-input');
+    if (!titleInput || !descriptionInput) return;
+
+    const title = titleInput.value.trim();
+    const description = descriptionInput.value;
+    if (!title) {
+      showToast('Укажите заголовок', 'info');
+      titleInput.focus();
+      return;
+    }
+
+    const submitBtn = editTaskForm.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await api(`/tasks/${currentEditingTaskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ title, description })
+      });
+      showToast('Публикация обновлена', 'success');
+      closeEditTaskModal();
+      loadTasks();
+    } catch (err) {
+      showToast(err.message || 'Не удалось изменить публикацию');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+}
+
+const editTaskModal = $('#edit-task-modal');
+if (editTaskModal) {
+  editTaskModal.addEventListener('click', (e) => {
+    if (e.target === editTaskModal) closeEditTaskModal();
+  });
+}
+$('#close-edit-task')?.addEventListener('click', closeEditTaskModal);
+$('#cancel-edit-task')?.addEventListener('click', closeEditTaskModal);
+
 const confirmModal = $('#confirm-modal');
 const confirmOk = $('#confirm-modal-ok');
 const confirmCancel = $('#confirm-modal-cancel');
@@ -1213,6 +1252,12 @@ document.addEventListener('keydown', (e) => {
   if (cm && !cm.classList.contains('hidden')) {
     e.preventDefault();
     finishConfirm(false);
+    return;
+  }
+  const em = $('#edit-task-modal');
+  if (em && !em.classList.contains('hidden')) {
+    e.preventDefault();
+    closeEditTaskModal();
     return;
   }
   closeHeaderUsersDropdown();
