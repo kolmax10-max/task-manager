@@ -11,6 +11,7 @@ const { normalizeUploadFilename } = require('../lib/normalize-upload-filename');
 
 const maxMb = Math.min(500, Math.max(1, parseInt(process.env.MAX_UPLOAD_MB || '500', 10) || 500));
 const MAX_FILE_BYTES = maxMb * 1024 * 1024;
+const MAX_TASK_ATTACHMENTS = 25;
 
 const diskStorage = multer.diskStorage({
   destination: async (req, file, cb) => {
