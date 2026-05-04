@@ -189,6 +189,17 @@ async function adminDeleteUser(userId, actorUserId) {
   return { ok: true, deleted: deleted[0] };
 }
 
+async function adminSetUserPassword(userId, passwordHash) {
+  const { rows } = await getPool().query(
+    `UPDATE users
+     SET password_hash = $1
+     WHERE id = $2
+     RETURNING id, username`,
+    [passwordHash, userId]
+  );
+  return rows[0] || null;
+}
+
 async function getAllTasks() {
   const pool = getPool();
   const { rows: tasks } = await pool.query(`
@@ -381,6 +392,7 @@ module.exports = {
   rejectRegistration,
   listUsersForAdmin,
   adminDeleteUser,
+  adminSetUserPassword,
   getAllTasks,
   getTaskById,
   createTask,

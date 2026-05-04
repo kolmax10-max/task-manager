@@ -792,9 +792,12 @@ async function loadAdminUsers() {
       .map((u) => {
         const statusLabel = ACCOUNT_STATUS_LABELS[u.account_status] || u.account_status;
         const isSelf = Number(u.id) === Number(currentUser.id);
-        const deleteBtn = isSelf
-          ? '<span class="admin-user-self-hint">это вы</span>'
-          : `<button type="button" class="btn-user-delete" data-id="${u.id}">Удалить</button>`;
+        const selfHint = isSelf ? '<span class="admin-user-self-hint">это вы</span>' : '';
+        const actionsHtml = `
+          <button type="button" class="btn-user-password" data-id="${u.id}">Сменить пароль</button>
+          ${isSelf ? '' : `<button type="button" class="btn-user-delete" data-id="${u.id}">Удалить</button>`}
+          ${selfHint}
+        `;
         return `
       <div class="admin-user-card">
         <div class="admin-user-info">
@@ -803,10 +806,18 @@ async function loadAdminUsers() {
           <span class="admin-user-status admin-user-status--${escapeHtml(u.account_status)}">${escapeHtml(statusLabel)}</span>
           <span class="pending-reg-date">${new Date(u.created_at).toLocaleString('ru')}</span>
         </div>
-        <div class="admin-user-actions">${deleteBtn}</div>
+        <div class="admin-user-actions">${actionsHtml}</div>
       </div>`;
       })
       .join('');
+
+    list.querySelectorAll('.btn-user-password').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.dataset.id);
+        const name = btn.closest('.admin-user-card')?.querySelector('strong')?.textContent || '';
+        changeAdminUserPassword(id, name);
+      });
+    });
 
     list.querySelectorAll('.btn-user-delete').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -817,6 +828,26 @@ async function loadAdminUsers() {
     });
   } catch (err) {
     list.innerHTML = `<p class="pending-reg-error">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function changeAdminUserPassword(userId, username) {
+  const password = window.prompt(`Введите новый пароль для пользователя «${username}» (минимум 4 символа):`, '');
+  if (password === null) return;
+  const normalized = password.trim();
+  if (normalized.length < 4) {
+    showToast('Пароль должен быть минимум 4 символа');
+    return;
+  }
+
+  try {
+    await api(`/admin/users/${userId}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password: normalized })
+    });
+    showToast(`Пароль пользователя «${username}» обновлён`, 'success');
+  } catch (err) {
+    showToast(err.message || 'Не удалось обновить пароль');
   }
 }
 

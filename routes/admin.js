@@ -1,11 +1,13 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const {
   getPendingRegistrations,
   approveRegistration,
   rejectRegistration,
   listUsersForAdmin,
-  adminDeleteUser
+  adminDeleteUser,
+  adminSetUserPassword
 } = require('../db');
 
 const router = express.Router();
@@ -85,6 +87,33 @@ router.delete('/users/:id', authenticateToken, requireAdmin, async (req, res) =>
       return res.status(400).json({ error: 'Не удалось удалить пользователя' });
     }
     res.json({ ok: true, deleted: result.deleted });
+  } catch (err) {
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+router.post('/users/:id/password', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) {
+      return res.status(400).json({ error: 'Некорректный id' });
+    }
+
+    const { password } = req.body || {};
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Укажите новый пароль' });
+    }
+    if (password.length < 4) {
+      return res.status(400).json({ error: 'Пароль минимум 4 символа' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const updated = await adminSetUserPassword(id, passwordHash);
+    if (!updated) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    res.json({ ok: true, user: updated });
   } catch (err) {
     res.status(500).json({ error: 'Ошибка сервера' });
   }
